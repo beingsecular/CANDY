@@ -69,3 +69,28 @@ async def sudoers_list(client, message: Message, _):
         await message.reply_text(_["sudo_7"])
     else:
         await message.reply_text(text, reply_markup=close_markup(_))
+
+
+@app.on_message(filters.command("clearsudo") & filters.user(OWNER_ID))
+@language
+async def clear_sudo_except_owner(client, message: Message, _):
+    if not SUDOERS:
+        return await message.reply_text("❌ Koi bhi sudo user nahi hai.")
+
+    remaining = []
+    failed = 0
+    for user_id in list(SUDOERS):
+        if user_id == OWNER_ID:
+            remaining.append(user_id)
+            continue
+        removed = await remove_sudo(user_id)
+        if removed:
+            SUDOERS.remove(user_id)
+        else:
+            failed += 1
+
+    await message.reply_text(
+        f"✅ Sirf OWNER sudo me rakha gaya.\n"
+        f"🗑️ Baaki sab remove kar diye gaye.\n"
+        f"❌ Remove fail hue: {failed}" if failed else "✅ Cleaned successfully."
+                    )
