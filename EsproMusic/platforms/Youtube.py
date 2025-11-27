@@ -9,10 +9,9 @@ from pyrogram.types import Message
 from youtubesearchpython.__future__ import VideosSearch
 
 from EsproMusic.utils.formatters import time_to_seconds
-
+from config import API_KEY
 # API Configuration
 API_BASE_URL = "https://youtubify.me"
-API_KEY = ""
 
 # Streaming configuration
 ENABLE_STREAMING = True  # Enable streaming URLs for VC (no file size limit)
