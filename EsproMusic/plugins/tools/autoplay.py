@@ -4,8 +4,8 @@ import re
 from pyrogram import filters
 from pyrogram.enums import ParseMode
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message, CallbackQuery
-from pytgcalls.types import MediaStream
-from pytgcalls.types.stream import StreamAudioEnded
+from pytgcalls.types.input_stream import AudioPiped
+from pytgcalls.types.input_stream.quality import HighQualityAudio
 from youtubesearchpython.__future__ import VideosSearch
 
 from EsproMusic import LOGGER, YouTube, app
@@ -207,15 +207,9 @@ async def trigger_autoplay(client, chat_id: int, last_track: dict = None):
             await _clear_(chat_id)
             return await client.leave_group_call(chat_id)
 
-        # Stream via PyTgCalls (MediaStream Universal Support)
-        try:
-            stream = MediaStream(file_path)
-            await client.change_stream(chat_id, stream)
-        except Exception:
-            # Fallback for older pytgcalls syntax
-            from pytgcalls.types.input_stream import AudioPiped
-            stream = AudioPiped(file_path)
-            await client.change_stream(chat_id, stream)
+        # Stream via PyTgCalls
+        stream = AudioPiped(file_path, audio_parameters=HighQualityAudio())
+        await client.change_stream(chat_id, stream)
 
         # Queue Entry
         original_chat_id = chat_id
@@ -258,9 +252,8 @@ async def trigger_autoplay(client, chat_id: int, last_track: dict = None):
             parse_mode=ParseMode.HTML,
             reply_markup=InlineKeyboardMarkup(button),
         )
-        if chat_id in db and len(db[chat_id]) > 0:
-            db[chat_id][0]["mystic"] = run
-            db[chat_id][0]["markup"] = "stream"
+        db[chat_id][0]["mystic"] = run
+        db[chat_id][0]["markup"] = "stream"
     except Exception as e:
         LOGGER(__name__).error(f"AutoPlay Runner Error: {e}")
         await _clear_(chat_id)
