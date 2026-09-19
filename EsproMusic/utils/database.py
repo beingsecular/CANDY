@@ -21,6 +21,7 @@ playtypedb = mongodb.playtypedb
 skipdb = mongodb.skipmode
 sudoersdb = mongodb.sudoers
 usersdb = mongodb.tgusersdb
+playlistdb = mongodb.playlist
 
 # Shifting to memory [mongo sucks often]
 active = []
@@ -644,3 +645,84 @@ async def remove_banned_user(user_id: int):
     if not is_gbanned:
         return
     return await blockeddb.delete_one({"user_id": user_id})
+
+
+# --- Playlist Database Operations ---
+
+async def get_playlist(user_id: int) -> list:
+    user = await playlistdb.find_one({"user_id": user_id})
+    if not user:
+        return []
+    return user.get("playlist", [])
+
+
+async def get_playlist_count(user_id: int) -> int:
+    playlist = await get_playlist(user_id)
+    return len(playlist)
+
+
+async def add_to_playlist(user_id: int, vidid: str, title: str, duration: str) -> tuple:
+    user = await playlistdb.find_one({"user_id": user_id})
+    playlist = user.get("playlist", []) if user else []
+
+    if len(playlist) >= 50:
+        return False, "limit_exceeded"
+
+    for track in playlist:
+        if track.get("vidid") == vidid:
+            return False, "already_exists"
+
+    track_item = {
+        "vidid": vidid,
+        "title": title,
+        "duration": duration,
+    }
+    playlist.append(track_item)
+
+    await playlistdb.update_one(
+        {"user_id": user_id},
+        {"$set": {"playlist": playlist}},
+        upsert=True,
+    )
+    return True, "added"
+
+
+async def remove_from_playlist_by_index(user_id: int, index: int) -> tuple:
+    user = await playlistdb.find_one({"user_id": user_id})
+    if not user:
+        return False, "not_found"
+
+    playlist = user.get("playlist", [])
+    if index < 1 or index > len(playlist):
+        return False, "invalid_index"
+
+    removed_track = playlist.pop(index - 1)
+    await playlistdb.update_one(
+        {"user_id": user_id},
+        {"$set": {"playlist": playlist}},
+        upsert=True,
+    )
+    return True, removed_track.get("title", f"Track #{index}")
+
+
+async def remove_from_playlist_by_vidid(user_id: int, vidid: str) -> tuple:
+    user = await playlistdb.find_one({"user_id": user_id})
+    if not user:
+        return False, "not_found"
+
+    playlist = user.get("playlist", [])
+    new_playlist = [t for t in playlist if t.get("vidid") != vidid]
+    if len(new_playlist) == len(playlist):
+        return False, "not_found"
+
+    await playlistdb.update_one(
+        {"user_id": user_id},
+        {"$set": {"playlist": new_playlist}},
+        upsert=True,
+    )
+    return True, "removed"
+
+
+async def delete_playlist(user_id: int) -> bool:
+    await playlistdb.delete_one({"user_id": user_id})
+    return True

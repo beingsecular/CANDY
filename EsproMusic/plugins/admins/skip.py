@@ -41,6 +41,12 @@ async def skip(cli, message: Message, _, chat_id):
                                 await auto_clean(popped)
                             if not check:
                                 try:
+                                    from EsproMusic.plugins.tools.autoplay import is_autoplay_enabled, trigger_autoplay
+                                    if await is_autoplay_enabled(chat_id):
+                                        await message.reply_text(
+                                            f"➻ sᴛʀᴇᴀᴍ sᴋɪᴩᴩᴇᴅ 🎄\n│ \n└ʙʏ : {message.from_user.mention} 🥀\n\n🔄 <b>Autoplay enabled: playing next track...</b>"
+                                        )
+                                        return await trigger_autoplay(None, chat_id, popped)
                                     await message.reply_text(
                                         text=_["admin_6"].format(
                                             message.from_user.mention,
@@ -68,6 +74,15 @@ async def skip(cli, message: Message, _, chat_id):
             if popped:
                 await auto_clean(popped)
             if not check:
+                try:
+                    from EsproMusic.plugins.tools.autoplay import is_autoplay_enabled, trigger_autoplay
+                    if await is_autoplay_enabled(chat_id):
+                        await message.reply_text(
+                            f"➻ sᴛʀᴇᴀᴍ sᴋɪᴩᴩᴇᴅ 🎄\n│ \n└ʙʏ : {message.from_user.mention} 🥀\n\n🔄 <b>Autoplay enabled: playing next track...</b>"
+                        )
+                        return await trigger_autoplay(None, chat_id, popped)
+                except Exception:
+                    pass
                 await message.reply_text(
                     text=_["admin_6"].format(
                         message.from_user.mention, message.chat.title
@@ -79,6 +94,12 @@ async def skip(cli, message: Message, _, chat_id):
                 except:
                     return
         except:
+            try:
+                from EsproMusic.plugins.tools.autoplay import is_autoplay_enabled, trigger_autoplay
+                if await is_autoplay_enabled(chat_id):
+                    return await trigger_autoplay(None, chat_id, popped)
+            except Exception:
+                pass
             try:
                 await message.reply_text(
                     text=_["admin_6"].format(

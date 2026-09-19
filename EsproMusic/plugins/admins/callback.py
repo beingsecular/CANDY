@@ -167,6 +167,15 @@ async def del_back_playlist(client, CallbackQuery, _):
                 if popped:
                     await auto_clean(popped)
                 if not check:
+                    try:
+                        from EsproMusic.plugins.tools.autoplay import is_autoplay_enabled, trigger_autoplay
+                        if await is_autoplay_enabled(chat_id):
+                            await CallbackQuery.edit_message_text(
+                                f"➻ sᴛʀᴇᴀᴍ sᴋɪᴩᴩᴇᴅ 🎄\n│ \n└ʙʏ : {mention} 🥀\n\n🔄 <b>Autoplay enabled: playing next track...</b>"
+                            )
+                            return await trigger_autoplay(None, chat_id, popped)
+                    except Exception:
+                        pass
                     await CallbackQuery.edit_message_text(
                         f"➻ sᴛʀᴇᴀᴍ sᴋɪᴩᴩᴇᴅ 🎄\n│ \n└ʙʏ : {mention} 🥀"
                     )
@@ -181,6 +190,15 @@ async def del_back_playlist(client, CallbackQuery, _):
                     except:
                         return
             except:
+                try:
+                    from EsproMusic.plugins.tools.autoplay import is_autoplay_enabled, trigger_autoplay
+                    if await is_autoplay_enabled(chat_id):
+                        await CallbackQuery.edit_message_text(
+                            f"➻ sᴛʀᴇᴀᴍ sᴋɪᴩᴩᴇᴅ 🎄\n│ \n└ʙʏ : {mention} 🥀\n\n🔄 <b>Autoplay enabled: playing next track...</b>"
+                        )
+                        return await trigger_autoplay(None, chat_id, popped)
+                except Exception:
+                    pass
                 try:
                     await CallbackQuery.edit_message_text(
                         f"➻ sᴛʀᴇᴀᴍ sᴋɪᴩᴩᴇᴅ 🎄\n│ \n└ʙʏ : {mention} 🥀"

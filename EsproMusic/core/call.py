@@ -341,9 +341,21 @@ class Call(PyTgCalls):
                 await set_loop(chat_id, loop)
             await auto_clean(popped)
             if not check:
+                try:
+                    from EsproMusic.plugins.tools.autoplay import is_autoplay_enabled, trigger_autoplay
+                    if await is_autoplay_enabled(chat_id):
+                        return await trigger_autoplay(client, chat_id, popped)
+                except Exception as e:
+                    LOGGER(__name__).error(f"[Call] Autoplay trigger error: {e}")
                 await _clear_(chat_id)
                 return await client.leave_group_call(chat_id)
-        except:
+        except Exception as e:
+            try:
+                from EsproMusic.plugins.tools.autoplay import is_autoplay_enabled, trigger_autoplay
+                if await is_autoplay_enabled(chat_id):
+                    return await trigger_autoplay(client, chat_id, popped)
+            except Exception:
+                pass
             try:
                 await _clear_(chat_id)
                 return await client.leave_group_call(chat_id)
