@@ -341,6 +341,14 @@ class Call(PyTgCalls):
                 await set_loop(chat_id, loop)
             await auto_clean(popped)
             if not check:
+                # Queue khatam: AutoPlay ON ho to related song chalao
+                try:
+                    from EsproMusic.plugins.tools.autoplay import try_autoplay
+
+                    if popped and await try_autoplay(chat_id, popped, client):
+                        return
+                except Exception as e:
+                    LOGGER(__name__).error(f"AutoPlay hook error: {e}")
                 await _clear_(chat_id)
                 return await client.leave_group_call(chat_id)
         except:
