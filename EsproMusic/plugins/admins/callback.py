@@ -167,6 +167,10 @@ async def del_back_playlist(client, CallbackQuery, _):
                 if popped:
                     await auto_clean(popped)
                 if not check:
+                    from EsproMusic.plugins.tools.autoplay import try_autoplay
+
+                    if popped and await try_autoplay(chat_id, popped):
+                        return await CallbackQuery.answer()
                     await CallbackQuery.edit_message_text(
                         f"➻ sᴛʀᴇᴀᴍ sᴋɪᴩᴩᴇᴅ 🎄\n│ \n└ʙʏ : {mention} 🥀"
                     )
