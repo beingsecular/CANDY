@@ -68,6 +68,10 @@ async def skip(cli, message: Message, _, chat_id):
             if popped:
                 await auto_clean(popped)
             if not check:
+                from EsproMusic.plugins.tools.autoplay import try_autoplay
+
+                if popped and await try_autoplay(chat_id, popped):
+                    return
                 await message.reply_text(
                     text=_["admin_6"].format(
                         message.from_user.mention, message.chat.title
