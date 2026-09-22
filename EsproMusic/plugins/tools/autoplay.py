@@ -59,6 +59,35 @@ async def set_autoplay(chat_id: int, status: bool):
     )
 
 
+def autoplay_label(chat_id: int) -> str:
+    """
+    Sync helper — har 'Now Playing' card ka AutoPlay button isse text leta hai.
+    Cache cold ho (restart ke turant baad) to background me DB se warm kar deta hai.
+    """
+    if chat_id not in autoplay_cache:
+        try:
+            asyncio.get_running_loop().create_task(is_autoplay_enabled(chat_id))
+        except RuntimeError:
+            pass
+        return "🔄 AutoPlay: OFF ❌"
+    return "🔄 AutoPlay: ON ✅" if autoplay_cache[chat_id] else "🔄 AutoPlay: OFF ❌"
+
+
+async def refresh_now_playing_button(chat_id: int):
+    """Toggle hote hi, chat me jo 'Now Playing' card dikh raha hai uska button turant update karo."""
+    entry = db.get(chat_id)
+    if not entry or not entry[0].get("mystic"):
+        return
+    try:
+        language = await get_lang(chat_id)
+        _ = get_string(language)
+        await entry[0]["mystic"].edit_reply_markup(
+            InlineKeyboardMarkup(stream_markup(_, chat_id))
+        )
+    except Exception as e:
+        LOGGER(__name__).warning(f"[AutoPlay] button refresh failed: {e}")
+
+
 # ─────────────────────────── Helpers ───────────────────────────
 def _clean_title(title) -> str:
     text = str(title or "")
@@ -317,6 +346,7 @@ async def autoplay_command(cli, message: Message, _, chat_id):
             return await message.reply_text("Usage:\n/autoplay [on|off]")
 
     await set_autoplay(chat_id, new_state)
+    await refresh_now_playing_button(chat_id)
     status = "ENABLED ✅" if new_state else "DISABLED ❌"
     await message.reply_text(
         f"🔄 <b>AutoPlay {status}</b> by {mention}", parse_mode=ParseMode.HTML
@@ -357,6 +387,16 @@ async def _handle_autoplay_button(CallbackQuery: CallbackQuery):
     new_state = not await is_autoplay_enabled(chat_id)
     await set_autoplay(chat_id, new_state)
     status = "ENABLED ✅" if new_state else "DISABLED ❌"
+
+    try:
+        language = await get_lang(chat_id)
+        _ = get_string(language)
+        await CallbackQuery.edit_message_reply_markup(
+            InlineKeyboardMarkup(stream_markup(_, chat_id))
+        )
+    except Exception as e:
+        LOGGER(__name__).warning(f"[AutoPlay] button refresh failed: {e}")
+
     await CallbackQuery.answer(f"🔄 AutoPlay {status}", show_alert=True)
 
 
