@@ -5,6 +5,15 @@ from pyrogram.types import InlineKeyboardButton
 from EsproMusic.utils.formatters import time_to_seconds
 
 
+def _autoplay_label(chat_id) -> str:
+    try:
+        from EsproMusic.plugins.tools.autoplay import autoplay_label
+
+        return autoplay_label(chat_id)
+    except Exception:
+        return "🔄 AutoPlay"
+
+
 def track_markup(_, videoid, user_id, channel, fplay):
     buttons = [
         [
@@ -62,7 +71,7 @@ def stream_markup_timer(_, chat_id, played, dur):
         ],
         [
             InlineKeyboardButton(
-                text="🔄 AutoPlay",
+                text=_autoplay_label(chat_id),
                 callback_data=f"ADMIN AutoPlay|{chat_id}",
             ),
         ],
@@ -78,6 +87,7 @@ def stream_markup_timer(_, chat_id, played, dur):
 
 
 def stream_markup(_, chat_id):
+    ap_text = _autoplay_label(chat_id)
     buttons = [
         [
             InlineKeyboardButton(text="▷", callback_data=f"ADMIN Resume|{chat_id}"),
@@ -88,7 +98,7 @@ def stream_markup(_, chat_id):
         ],
         [
             InlineKeyboardButton(
-                text="🔄 AutoPlay",
+                text=ap_text,
                 callback_data=f"ADMIN AutoPlay|{chat_id}",
             ),
         ],
