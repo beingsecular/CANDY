@@ -4,7 +4,7 @@ from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message, 
 from EsproMusic import app
 from EsproMusic.misc import db
 
-# Safe import for Call instance across different Yukki/Espro Music forks
+# Safe import for Call instance
 try:
     from EsproMusic.core.call import Espro
 except ImportError:
@@ -21,11 +21,23 @@ from EsproMusic.utils.database import (
     get_user_playlists,
     remove_song_from_playlist,
 )
-from EsproMusic.utils.language import get_string
 from EsproMusic.utils.stream.stream import stream
 from config import BANNED_USERS
 
-# Import YouTube helper for video details
+# Safe import for language strings across different bot forks
+try:
+    from strings import get_string
+except ImportError:
+    try:
+        from EsproMusic.utils.language import get_string
+    except ImportError:
+        class DummyLang(dict):
+            def __getitem__(self, item):
+                return self.get(item, "")
+        def get_string(lang):
+            return DummyLang()
+
+# Safe import for YouTube helper
 try:
     from EsproMusic.platforms import YouTube
     youtube = YouTube()
@@ -178,7 +190,10 @@ async def play_user_playlist_in_gc(client, message: Message):
         language = await get_lang(chat_id)
         _ = get_string(language)
     except Exception:
-        _ = {}
+        class DummyLang(dict):
+            def __getitem__(self, item):
+                return self.get(item, "")
+        _ = DummyLang()
 
     # Clear current queue and stop stream
     try:
