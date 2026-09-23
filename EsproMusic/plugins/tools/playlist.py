@@ -19,6 +19,8 @@ from EsproMusic.utils.database import (
     delete_playlist,
     get_lang,
     get_user_playlists,
+    remove_active_chat,
+    remove_active_video_chat,
     remove_song_from_playlist,
 )
 from EsproMusic.utils.stream.stream import stream
@@ -183,7 +185,7 @@ async def play_user_playlist_in_gc(client, message: Message):
     if not songs:
         return await message.reply_text(f"❌ Your playlist **{playlist_name}** is empty!")
 
-    mystic = await message.reply_text("🔄 **Loading playlist...**")
+    mystic = await message.reply_text("🔄 **Skipping current song & starting playlist...**")
 
     # Load Language dictionary
     try:
@@ -195,9 +197,11 @@ async def play_user_playlist_in_gc(client, message: Message):
                 return self.get(item, "")
         _ = DummyLang()
 
-    # Clear current queue & stop ongoing stream
+    # 1. Clear old queue
+    db[chat_id] = []
+
+    # 2. Stop ongoing stream & reset active state so old song skips immediately
     try:
-        db[chat_id] = []
         if hasattr(Espro, "stop_stream"):
             await Espro.stop_stream(chat_id)
         elif hasattr(Espro, "stop_stream_force"):
@@ -205,9 +209,15 @@ async def play_user_playlist_in_gc(client, message: Message):
     except Exception:
         pass
 
+    try:
+        await remove_active_chat(chat_id)
+        await remove_active_video_chat(chat_id)
+    except Exception:
+        pass
+
     user_name = message.from_user.first_name
 
-    # 1. Play first song via stream()
+    # 3. Stream 1st song of playlist immediately (forceplay)
     first_song = songs[0]
     videoid_0 = first_song.get("videoid")
     url_0 = f"https://www.youtube.com/watch?v={videoid_0}"
@@ -238,15 +248,15 @@ async def play_user_playlist_in_gc(client, message: Message):
             message.chat.id,
             video=None,
             streamtype="playlist",
+            forceplay=True,
         )
     except Exception as e:
         print(f"Error streaming first song: {e}")
 
-    # 2. Add remaining songs directly to background queue (`db[chat_id]`)
+    # 4. Add remaining playlist songs to background queue (`db[chat_id]`)
     if chat_id not in db:
         db[chat_id] = []
 
-    added_count = 1
     for song in songs[1:]:
         v_id = song.get("videoid")
         if not v_id:
@@ -278,9 +288,3 @@ async def play_user_playlist_in_gc(client, message: Message):
                 pass
 
         db[chat_id].append(d_item)
-        added_count += 1
-
-    await message.reply_text(
-        f"✅ **Playlist '{playlist_name}' loaded!**\n"
-        f"🎵 **Total Songs Queued:** {added_count}"
-    )
