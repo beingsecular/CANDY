@@ -1,5 +1,4 @@
 import time
-
 from pyrogram import filters
 from pyrogram.enums import ChatType
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
@@ -17,12 +16,14 @@ from EsproMusic.utils.database import (
     is_banned_user,
     is_on_off,
 )
+from EsproMusic.utils.database.playlist import get_user_playlists
 from EsproMusic.utils.decorators.language import LanguageStart
 from EsproMusic.utils.formatters import get_readable_time
 from EsproMusic.utils.inline import help_pannel, private_panel, start_panel
 from config import BANNED_USERS
 from strings import get_string
 
+PENDING_ADD_SONG = {}
 
 @app.on_message(filters.command(["start"]) & filters.private & ~BANNED_USERS)
 @LanguageStart
@@ -30,6 +31,31 @@ async def start_pm(client, message: Message, _):
     await add_served_user(message.from_user.id)
     if len(message.text.split()) > 1:
         name = message.text.split(None, 1)[1]
+        
+        # --- PLAYLIST DEEP-LINK HANDLING ---
+        if name == "my_playlists":
+            from EsproMusic.plugins.tools.playlist import show_my_playlists_menu
+            return await show_my_playlists_menu(client, message)
+            
+        if name.startswith("addpl_"):
+            videoid = name.split("addpl_")[1]
+            user_id = message.from_user.id
+            PENDING_ADD_SONG[user_id] = videoid
+            
+            playlists = await get_user_playlists(user_id)
+            buttons = []
+            if playlists:
+                for p_name in playlists.keys():
+                    buttons.append([InlineKeyboardButton(f"📁 {p_name}", callback_data=f"save_to_pl:{p_name}")])
+            
+            buttons.append([InlineKeyboardButton("➕ Create New Playlist", callback_data="ui_create_pl")])
+            buttons.append([InlineKeyboardButton("❌ CANCEL", callback_data="cancel_pl")])
+            
+            return await message.reply_text(
+                "📁 **Create/Select Playlist**\n\nEnter playlist name or select an existing one to add this song:",
+                reply_markup=InlineKeyboardMarkup(buttons)
+            )
+
         if name[0:4] == "help":
             keyboard = help_pannel(_)
             return await message.reply_photo(
