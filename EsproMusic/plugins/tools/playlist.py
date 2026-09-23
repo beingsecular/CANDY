@@ -2,8 +2,17 @@ from pyrogram import filters
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message, CallbackQuery
 
 from EsproMusic import app
-from EsproMusic.core.call import Espro
 from EsproMusic.misc import db
+
+# Safe import for Call instance across different Yukki/Espro Music forks
+try:
+    from EsproMusic.core.call import Espro
+except ImportError:
+    try:
+        from EsproMusic.core.call import EsproMusic as Espro
+    except ImportError:
+        from EsproMusic.core.call import Call as Espro
+
 from EsproMusic.utils.database import (
     add_song_to_playlist,
     create_playlist,
@@ -158,7 +167,10 @@ async def play_user_playlist_in_gc(client, message: Message):
     # Clear current queue and stop current stream
     try:
         db[chat_id] = []
-        await Espro.stop_stream(chat_id)
+        if hasattr(Espro, "stop_stream"):
+            await Espro.stop_stream(chat_id)
+        elif hasattr(Espro, "stop_stream_force"):
+            await Espro.stop_stream_force(chat_id)
     except Exception:
         pass
 
