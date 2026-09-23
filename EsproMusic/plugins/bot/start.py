@@ -13,10 +13,10 @@ from EsproMusic.utils.database import (
     add_served_user,
     blacklisted_chats,
     get_lang,
+    get_user_playlists,
     is_banned_user,
     is_on_off,
 )
-from EsproMusic.utils.database.playlist import get_user_playlists
 from EsproMusic.utils.decorators.language import LanguageStart
 from EsproMusic.utils.formatters import get_readable_time
 from EsproMusic.utils.inline import help_pannel, private_panel, start_panel
@@ -25,35 +25,42 @@ from strings import get_string
 
 PENDING_ADD_SONG = {}
 
+
 @app.on_message(filters.command(["start"]) & filters.private & ~BANNED_USERS)
 @LanguageStart
 async def start_pm(client, message: Message, _):
     await add_served_user(message.from_user.id)
     if len(message.text.split()) > 1:
         name = message.text.split(None, 1)[1]
-        
+
         # --- PLAYLIST DEEP-LINK HANDLING ---
         if name == "my_playlists":
-            from EsproMusic.plugins.tools.playlist import show_my_playlists_menu
-            return await show_my_playlists_menu(client, message)
-            
+            try:
+                from EsproMusic.plugins.tools.playlist import show_my_playlists_menu
+                return await show_my_playlists_menu(client, message)
+            except Exception as e:
+                print(f"Error showing playlists menu: {e}")
+                return
+
         if name.startswith("addpl_"):
             videoid = name.split("addpl_")[1]
             user_id = message.from_user.id
             PENDING_ADD_SONG[user_id] = videoid
-            
+
             playlists = await get_user_playlists(user_id)
             buttons = []
             if playlists:
                 for p_name in playlists.keys():
-                    buttons.append([InlineKeyboardButton(f"📁 {p_name}", callback_data=f"save_to_pl:{p_name}")])
-            
+                    buttons.append(
+                        [InlineKeyboardButton(f"📁 {p_name}", callback_data=f"save_to_pl:{p_name}")]
+                    )
+
             buttons.append([InlineKeyboardButton("➕ Create New Playlist", callback_data="ui_create_pl")])
             buttons.append([InlineKeyboardButton("❌ CANCEL", callback_data="cancel_pl")])
-            
+
             return await message.reply_text(
                 "📁 **Create/Select Playlist**\n\nEnter playlist name or select an existing one to add this song:",
-                reply_markup=InlineKeyboardMarkup(buttons)
+                reply_markup=InlineKeyboardMarkup(buttons),
             )
 
         if name[0:4] == "help":
@@ -63,14 +70,16 @@ async def start_pm(client, message: Message, _):
                 caption=_["help_1"].format(config.SUPPORT_CHAT),
                 reply_markup=keyboard,
             )
+
         if name[0:3] == "sud":
             await sudoers_list(client=client, message=message, _=_)
             if await is_on_off(2):
                 return await app.send_message(
                     chat_id=config.LOGGER_ID,
-                    text=f"{message.from_user.mention} ᴊᴜsᴛ sᴛᴀʀᴛᴇᴅ ᴛʜᴇ ʙᴏᴛ ᴛᴏ ᴄʜᴇᴄᴋ <b>sᴜᴅᴏʟɪsᴛ</b>.\n\n<b>ᴜsᴇʀ ɪᴅ :</b> <code>{message.from_user.id}</code>\n<b>ᴜsᴇʀɴᴀᴍᴇ :</b> @{message.from_user.username}",
+                    text=f"{message.from_user.mention} ᴊᴜsᴛ sᴛᴀʀᴛᴇᴅ ᴛʜᴇ ʙᴏᴛ ᴛᴏ ᴄʜᴇᴄᴋ <b>sᴜᴅᴏʟɪsᴛ</b>.\n\n<b>ᴜsᴇR ɪᴅ :</b> <code>{message.from_user.id}</code>\n<b>ᴜsᴇʀɴᴀᴍᴇ :</b> @{message.from_user.username}",
                 )
             return
+
         if name[0:3] == "inf":
             m = await message.reply_text("🔎")
             query = (str(name)).replace("info_", "", 1)
@@ -144,7 +153,7 @@ async def welcome(client, message: Message):
             if await is_banned_user(member.id):
                 try:
                     await message.chat.ban_member(member.id)
-                except:
+                except Exception:
                     pass
             if member.id == app.id:
                 if message.chat.type != ChatType.SUPERGROUP:
