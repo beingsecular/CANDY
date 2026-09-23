@@ -17,11 +17,20 @@ from EsproMusic.utils.database import (
     add_song_to_playlist,
     create_playlist,
     delete_playlist,
+    get_lang,
     get_user_playlists,
     remove_song_from_playlist,
 )
+from EsproMusic.utils.language import get_string
 from EsproMusic.utils.stream.stream import stream
 from config import BANNED_USERS
+
+# Import YouTube helper for video details
+try:
+    from EsproMusic.platforms import YouTube
+    youtube = YouTube()
+except Exception:
+    youtube = None
 
 # Temporary cache for songs waiting to be saved
 PENDING_ADD_SONG = {}
@@ -164,7 +173,14 @@ async def play_user_playlist_in_gc(client, message: Message):
 
     mystic = await message.reply_text("🔄 **Stopping current track & loading playlist...**")
 
-    # Clear current queue and stop current stream
+    # Load Language dictionary for stream translation
+    try:
+        language = await get_lang(chat_id)
+        _ = get_string(language)
+    except Exception:
+        _ = {}
+
+    # Clear current queue and stop stream
     try:
         db[chat_id] = []
         if hasattr(Espro, "stop_stream"):
@@ -181,12 +197,28 @@ async def play_user_playlist_in_gc(client, message: Message):
         videoid = song.get("videoid")
         url = f"https://www.youtube.com/watch?v={videoid}"
 
+        # Fetch track details dictionary required by stream()
+        details = None
+        if youtube:
+            try:
+                details, _id = await youtube.track(videoid, True)
+            except Exception:
+                details = None
+
+        if not details:
+            details = {
+                "title": song.get("title", "Telegram Playlist Song"),
+                "link": url,
+                "vidid": videoid,
+                "duration_min": "00:00",
+            }
+
         try:
             await stream(
-                None,
+                _,
                 mystic,
                 user_id,
-                url,
+                details,
                 chat_id,
                 user_name,
                 message.chat.id,
@@ -197,7 +229,10 @@ async def play_user_playlist_in_gc(client, message: Message):
         except Exception as e:
             print(f"Error playing song {videoid}: {e}")
 
-    await mystic.edit_text(
-        f"✅ **Playlist '{playlist_name}' started successfully!**\n"
-        f"🎵 **Total Songs Queued:** {count}"
-    )
+    if count > 0:
+        await mystic.edit_text(
+            f"✅ **Playlist '{playlist_name}' started successfully!**\n"
+            f"🎵 **Total Songs Queued:** {count}"
+        )
+    else:
+        await mystic.edit_text("❌ Failed to stream songs from this playlist. Check VPS terminal logs.")
