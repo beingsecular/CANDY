@@ -3,7 +3,7 @@ from pyrogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMa
 from youtubesearchpython.__future__ import VideosSearch
 
 from EsproMusic import app
-from EsproMusic.utils.database.playlist import (
+from EsproMusic.utils.database import (
     add_song_to_playlist,
     create_playlist,
     delete_playlist,
