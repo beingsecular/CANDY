@@ -1,8 +1,9 @@
 from pyrogram import filters
-from pyrogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
-from youtubesearchpython.__future__ import VideosSearch
+from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message, CallbackQuery
 
 from EsproMusic import app
+from EsproMusic.core.call import Espro
+from EsproMusic.misc import db
 from EsproMusic.utils.database import (
     add_song_to_playlist,
     create_playlist,
@@ -10,224 +11,181 @@ from EsproMusic.utils.database import (
     get_user_playlists,
     remove_song_from_playlist,
 )
+from EsproMusic.utils.stream.stream import stream
+from config import BANNED_USERS
 
-AWAITING_INPUT = {}
+# Temporary cache for songs waiting to be saved
+PENDING_ADD_SONG = {}
 
-async def show_my_playlists_menu(client, message_or_query):
-    user_id = message_or_query.from_user.id
+
+# --- PLAYLIST MENU FUNCTION ---
+async def show_my_playlists_menu(client, message_or_cb):
+    user_id = message_or_cb.from_user.id
     playlists = await get_user_playlists(user_id)
-    
+
     buttons = []
     if playlists:
         for p_name, songs in playlists.items():
             buttons.append([
                 InlineKeyboardButton(f"📁 {p_name} ({len(songs)} songs)", callback_data=f"view_pl:{p_name}"),
-                InlineKeyboardButton("▶️ Play", callback_data=f"play_pl_cb:{p_name}")
+                InlineKeyboardButton("▶️ Play", callback_data=f"play_pl_cmd:{p_name}")
             ])
-            
+
     buttons.append([InlineKeyboardButton("➕ Create New Playlist", callback_data="ui_create_pl")])
-    buttons.append([InlineKeyboardButton("◀️ Back", callback_data="cancel_pl")])
-    
-    text = "🎵 **My Playlists**\nChoose a playlist to play or manage."
-    
-    if isinstance(message_or_query, CallbackQuery):
-        await message_or_query.message.edit_text(text, reply_markup=InlineKeyboardMarkup(buttons))
+    buttons.append([InlineKeyboardButton("◀️ Back", callback_data="open_start_menu")])
+
+    text = "🎵 **My Playlists**\n\nChoose a playlist to play or manage:"
+
+    if isinstance(message_or_cb, Message):
+        await message_or_cb.reply_text(text, reply_markup=InlineKeyboardMarkup(buttons))
     else:
-        await message_or_query.reply_text(text, reply_markup=InlineKeyboardMarkup(buttons))
+        await message_or_cb.message.edit_text(text, reply_markup=InlineKeyboardMarkup(buttons))
 
 
-@app.on_message(filters.command(["myplaylist", "playlist"]) & filters.private)
+# --- COMMAND: /playlist OR /myplaylist IN PRIVATE CHAT ---
+@app.on_message(filters.command(["playlist", "myplaylist"]) & filters.private & ~BANNED_USERS)
 async def my_playlist_cmd(client, message: Message):
     await show_my_playlists_menu(client, message)
 
 
-@app.on_callback_query(filters.regex("^ui_create_pl$"))
-async def prompt_create_pl(client, query: CallbackQuery):
-    user_id = query.from_user.id
-    AWAITING_INPUT[user_id] = "create_name"
-    
-    buttons = [
-        [InlineKeyboardButton("◀️ Back", callback_data="my_playlists_cb"), InlineKeyboardButton("❌ CANCEL", callback_data="cancel_pl")]
-    ]
-    await query.message.edit_text(
-        "📁 **Create Playlist**\nEnter the name of your playlist.\n\nExample: *Chill Vibes, Study Mix, My Fav Songs...*",
-        reply_markup=InlineKeyboardMarkup(buttons)
+# --- CALLBACK: GENERATE COPYABLE COMMAND FOR GROUP CHAT ---
+@app.on_callback_query(filters.regex(r"^play_pl_cmd:(.*)$"))
+async def play_playlist_button_cb(client, CallbackQuery: CallbackQuery):
+    playlist_name = CallbackQuery.data.split("play_pl_cmd:")[1]
+    cmd_text = f"/playplaylist {playlist_name}"
+
+    await CallbackQuery.answer("Command generated!", show_alert=False)
+    await CallbackQuery.message.reply_text(
+        f"🎵 **Play Playlist in Group Chat**\n\n"
+        f"Copy the command below and paste it in your **Group Chat (GC)**:\n\n"
+        f"<code>{cmd_text}</code>\n\n"
+        f"⚡ *Sending this command in your group will stop the current track and start playing your playlist.*"
     )
 
 
-@app.on_message(filters.private & filters.text & ~filters.command(["start", "myplaylist", "playlist", "playplaylist"]))
-async def handle_user_text_inputs(client, message: Message):
-    user_id = message.from_user.id
-    state = AWAITING_INPUT.get(user_id)
-    
-    if state == "create_name":
-        pl_name = message.text.strip()
-        success = await create_playlist(user_id, pl_name)
-        AWAITING_INPUT[user_id] = None
-        
-        if not success:
-            return await message.reply_text("❌ Ye playlist naam pehle se exist karta hai!")
-            
-        from EsproMusic.plugins.bot.start import PENDING_ADD_SONG
-        videoid = PENDING_ADD_SONG.get(user_id)
-        
-        if videoid:
-            await add_song_to_playlist(user_id, pl_name, f"Song ({videoid})", videoid)
-            del PENDING_ADD_SONG[user_id]
-            
-        buttons = [
-            [InlineKeyboardButton("➕ Add Songs", callback_data=f"add_song_prompt:{pl_name}"), InlineKeyboardButton("📖 View Playlist", callback_data=f"view_pl:{pl_name}")],
-            [InlineKeyboardButton("◀️ Back", callback_data="my_playlists_cb"), InlineKeyboardButton("❌ Cancel", callback_data="cancel_pl")]
-        ]
-        await message.reply_text(
-            f"✅ **Playlist Created!**\nYour playlist **\"{pl_name}\"** has been created.",
-            reply_markup=InlineKeyboardMarkup(buttons)
-        )
+# --- CALLBACK: VIEW PLAYLIST CONTENTS ---
+@app.on_callback_query(filters.regex(r"^view_pl:(.*)$"))
+async def view_playlist_cb(client, CallbackQuery: CallbackQuery):
+    playlist_name = CallbackQuery.data.split("view_pl:")[1]
+    user_id = CallbackQuery.from_user.id
 
-    elif isinstance(state, str) and state.startswith("add_song_to:"):
-        pl_name = state.split("add_song_to:")[1]
-        query_text = message.text.strip()
-        
-        results = VideosSearch(query_text, limit=1)
-        res = await results.next()
-        if not res["result"]:
-            return await message.reply_text("❌ Song nahi mil saka. Phir se sahi naam ya link bhejein.")
-            
-        song_title = res["result"][0]["title"]
-        videoid = res["result"][0]["id"]
-        
-        await add_song_to_playlist(user_id, pl_name, song_title, videoid)
-        AWAITING_INPUT[user_id] = None
-        
-        buttons = [
-            [InlineKeyboardButton("➕ Add More", callback_data=f"add_song_prompt:{pl_name}"), InlineKeyboardButton("📖 View Playlist", callback_data=f"view_pl:{pl_name}")],
-            [InlineKeyboardButton("◀️ Back", callback_data=f"view_pl:{pl_name}"), InlineKeyboardButton("❌ Cancel", callback_data="cancel_pl")]
-        ]
-        await message.reply_text(
-            f"✅ **Song Added!**\nAdded to playlist: 📁 **{pl_name}**\n\n🎵 **{song_title}**",
-            reply_markup=InlineKeyboardMarkup(buttons)
-        )
+    playlists = await get_user_playlists(user_id)
+    songs = playlists.get(playlist_name, [])
+
+    if not songs:
+        text = f"📁 **Playlist:** `{playlist_name}`\n\nThis playlist is empty."
+    else:
+        text = f"📁 **Playlist:** `{playlist_name}`\n\n**Songs List:**\n"
+        for idx, song in enumerate(songs, 1):
+            text += f"{idx}. {song.get('title')}\n"
+
+    buttons = [
+        [InlineKeyboardButton("🗑️ Delete Playlist", callback_data=f"delete_pl:{playlist_name}")],
+        [InlineKeyboardButton("◀️ Back", callback_data="back_to_pl_menu")]
+    ]
+
+    await CallbackQuery.message.edit_text(text, reply_markup=InlineKeyboardMarkup(buttons))
 
 
-@app.on_callback_query(filters.regex("^save_to_pl:"))
-async def save_to_pl_cb(client, query: CallbackQuery):
-    user_id = query.from_user.id
-    pl_name = query.data.split(":")[1]
-    
-    from EsproMusic.plugins.bot.start import PENDING_ADD_SONG
+# --- CALLBACK: DELETE PLAYLIST ---
+@app.on_callback_query(filters.regex(r"^delete_pl:(.*)$"))
+async def delete_playlist_cb(client, CallbackQuery: CallbackQuery):
+    playlist_name = CallbackQuery.data.split("delete_pl:")[1]
+    user_id = CallbackQuery.from_user.id
+
+    await delete_playlist(user_id, playlist_name)
+    await CallbackQuery.answer(f"Deleted playlist '{playlist_name}'!", show_alert=True)
+    await show_my_playlists_menu(client, CallbackQuery)
+
+
+# --- CALLBACK: BACK TO PLAYLIST MENU ---
+@app.on_callback_query(filters.regex("^back_to_pl_menu$"))
+async def back_to_pl_menu_cb(client, CallbackQuery: CallbackQuery):
+    await show_my_playlists_menu(client, CallbackQuery)
+
+
+# --- CALLBACK: SAVE SONG TO PLAYLIST ---
+@app.on_callback_query(filters.regex(r"^save_to_pl:(.*)$"))
+async def save_to_pl_cb(client, CallbackQuery: CallbackQuery):
+    playlist_name = CallbackQuery.data.split("save_to_pl:")[1]
+    user_id = CallbackQuery.from_user.id
+
     videoid = PENDING_ADD_SONG.get(user_id)
-    
     if not videoid:
-        return await query.answer("❌ Request expire ho gayi hai. Group se dobara try karein.", show_alert=True)
-        
-    res = await add_song_to_playlist(user_id, pl_name, f"Track {videoid}", videoid)
+        return await CallbackQuery.answer("No pending song found to add!", show_alert=True)
+
+    res = await add_song_to_playlist(user_id, playlist_name, f"Song ({videoid})", videoid)
     if res == "duplicate":
-        await query.message.edit_text(f"⚠️ Ye song pehle se **{pl_name}** me maujood hai!")
+        await CallbackQuery.answer("Song is already in this playlist!", show_alert=True)
     else:
-        await query.message.edit_text(f"✅ Song **{pl_name}** playlist me successfully add ho gaya!")
-        
-    if user_id in PENDING_ADD_SONG:
-        del PENDING_ADD_SONG[user_id]
+        await CallbackQuery.answer(f"Added to '{playlist_name}'!", show_alert=True)
+        PENDING_ADD_SONG.pop(user_id, None)
+
+    await CallbackQuery.message.delete()
 
 
-@app.on_callback_query(filters.regex("^add_song_prompt:"))
-async def prompt_add_song(client, query: CallbackQuery):
-    user_id = query.from_user.id
-    pl_name = query.data.split(":")[1]
-    AWAITING_INPUT[user_id] = f"add_song_to:{pl_name}"
-    
-    buttons = [
-        [InlineKeyboardButton("◀️ Back", callback_data=f"view_pl:{pl_name}")],
-        [InlineKeyboardButton("❌ CANCEL", callback_data="cancel_pl")]
-    ]
-    await query.message.edit_text(
-        f"🎵 **Add Songs**\nSend me the song name, link or search query.\n\nExample: *\"Kesariya\"* or *\"https://youtu.be/...\"*",
-        reply_markup=InlineKeyboardMarkup(buttons)
-    )
-
-
-@app.on_callback_query(filters.regex("^view_pl:"))
-async def view_pl_cb(client, query: CallbackQuery):
-    user_id = query.from_user.id
-    pl_name = query.data.split(":")[1]
-    playlists = await get_user_playlists(user_id)
-    
-    songs = playlists.get(pl_name, [])
-    
-    text = f"📁 **Playlist Menu ({pl_name})**\n{len(songs)} songs • Created by you\n\n"
-    for idx, song in enumerate(songs, 1):
-        text += f"{idx}. {song['title']}\n"
-        
-    buttons = [
-        [InlineKeyboardButton("▶️ Play Playlist", callback_data=f"play_pl_cb:{pl_name}")],
-        [InlineKeyboardButton("➕ Add Song", callback_data=f"add_song_prompt:{pl_name}"), InlineKeyboardButton("🗑️ Delete Playlist", callback_data=f"del_pl:{pl_name}")],
-        [InlineKeyboardButton("◀️ Back", callback_data="my_playlists_cb")]
-    ]
-    await query.message.edit_text(text, reply_markup=InlineKeyboardMarkup(buttons))
-
-
-@app.on_callback_query(filters.regex("^del_pl:"))
-async def del_pl_cb(client, query: CallbackQuery):
-    user_id = query.from_user.id
-    pl_name = query.data.split(":")[1]
-    
-    await delete_playlist(user_id, pl_name)
-    await query.answer("🗑️ Playlist deleted!", show_alert=True)
-    await show_my_playlists_menu(client, query)
-
-
-@app.on_callback_query(filters.regex("^my_playlists_cb$"))
-async def back_my_pl(client, query: CallbackQuery):
-    await show_my_playlists_menu(client, query)
-
-
+# --- CALLBACK: CANCEL PLAYLIST ACTION ---
 @app.on_callback_query(filters.regex("^cancel_pl$"))
-async def cancel_pl_cb(client, query: CallbackQuery):
-    await query.message.delete()
+async def cancel_pl_cb(client, CallbackQuery: CallbackQuery):
+    user_id = CallbackQuery.from_user.id
+    PENDING_ADD_SONG.pop(user_id, None)
+    await CallbackQuery.message.delete()
 
 
-@app.on_message(filters.command(["playplaylist", "playpl"]))
-@app.on_callback_query(filters.regex("^play_pl_cb:"))
-async def play_playlist_stream(client, message_or_query):
-    is_cb = isinstance(message_or_query, CallbackQuery)
-    user_id = message_or_query.from_user.id
-    
-    if is_cb:
-        pl_name = message_or_query.data.split(":")[1]
-        chat_id = message_or_query.message.chat.id
-    else:
-        if len(message_or_query.command) < 2:
-            return await message_or_query.reply_text("Usage: `/playplaylist <playlist_name>`")
-        pl_name = message_or_query.text.split(None, 1)[1].strip()
-        chat_id = message_or_query.chat.id
-        
+# --- GROUP COMMAND: /playplaylist <playlist_name> ---
+@app.on_message(filters.command(["playplaylist", "playpl"]) & filters.group & ~BANNED_USERS)
+async def play_user_playlist_in_gc(client, message: Message):
+    if len(message.command) < 2:
+        return await message.reply_text(
+            "❌ **Usage:** `/playplaylist <playlist_name>`\n"
+            "Example: `/playplaylist krish`"
+        )
+
+    playlist_name = message.text.split(None, 1)[1].strip()
+    user_id = message.from_user.id
+    chat_id = message.chat.id
+
     playlists = await get_user_playlists(user_id)
-    if pl_name not in playlists or not playlists[pl_name]:
-        msg = "❌ Ye playlist nahi mili ya isme koi song nahi hai."
-        return await message_or_query.answer(msg, show_alert=True) if is_cb else await message_or_query.reply_text(msg)
-        
-    songs = playlists[pl_name]
-    
-    msg_text = f"▶️ Playlist **{pl_name}** se **{len(songs)} songs** queue me stream hona shuru ho rahe hain..."
-    if is_cb:
-        await message_or_query.message.edit_text(msg_text)
-    else:
-        await message_or_query.reply_text(msg_text)
+    if not playlists or playlist_name not in playlists:
+        return await message.reply_text(f"❌ Playlist **{playlist_name}** not found!")
 
-    # EsproMusic play stream queue call
-    from EsproMusic.plugins.play.play import stream
+    songs = playlists[playlist_name]
+    if not songs:
+        return await message.reply_text(f"❌ Your playlist **{playlist_name}** is empty!")
+
+    mystic = await message.reply_text("🔄 **Stopping current track & loading playlist...**")
+
+    # Clear current queue and stop current stream
+    try:
+        db[chat_id] = []
+        await Espro.stop_stream(chat_id)
+    except Exception:
+        pass
+
+    user_name = message.from_user.first_name
+    count = 0
+
     for song in songs:
+        videoid = song.get("videoid")
+        url = f"https://www.youtube.com/watch?v={videoid}"
+
         try:
             await stream(
-                client,
-                message_or_query.message if is_cb else message_or_query,
+                None,
+                mystic,
                 user_id,
-                song["videoid"],
+                url,
                 chat_id,
-                user_id,
-                "a",
-                None,
-                None,
+                user_name,
+                message.chat.id,
+                video=None,
+                streamtype="playlist",
             )
-        except Exception:
-            pass
+            count += 1
+        except Exception as e:
+            print(f"Error playing song {videoid}: {e}")
+
+    await mystic.edit_text(
+        f"✅ **Playlist '{playlist_name}' started successfully!**\n"
+        f"🎵 **Total Songs Queued:** {count}"
+    )
