@@ -21,6 +21,7 @@ playtypedb = mongodb.playtypedb
 skipdb = mongodb.skipmode
 sudoersdb = mongodb.sudoers
 usersdb = mongodb.tgusersdb
+playlistdb = mongodb.playlist
 
 # Shifting to memory [mongo sucks often]
 active = []
@@ -644,3 +645,59 @@ async def remove_banned_user(user_id: int):
     if not is_gbanned:
         return
     return await blockeddb.delete_one({"user_id": user_id})
+
+
+# ================= PLAYLIST SYSTEM DATABASE ================= #
+
+async def get_user_playlists(user_id: int) -> dict:
+    user_data = await playlistdb.find_one({"user_id": user_id})
+    return user_data.get("playlists", {}) if user_data else {}
+
+
+async def create_playlist(user_id: int, playlist_name: str) -> bool:
+    playlists = await get_user_playlists(user_id)
+    if playlist_name in playlists:
+        return False
+    playlists[playlist_name] = []
+    await playlistdb.update_one(
+        {"user_id": user_id}, {"$set": {"playlists": playlists}}, upsert=True
+    )
+    return True
+
+
+async def add_song_to_playlist(user_id: int, playlist_name: str, song_title: str, videoid: str):
+    playlists = await get_user_playlists(user_id)
+    if playlist_name not in playlists:
+        playlists[playlist_name] = []
+
+    for song in playlists[playlist_name]:
+        if song.get("videoid") == videoid:
+            return "duplicate"
+
+    playlists[playlist_name].append({"title": song_title, "videoid": videoid})
+    await playlistdb.update_one(
+        {"user_id": user_id}, {"$set": {"playlists": playlists}}, upsert=True
+    )
+    return True
+
+
+async def delete_playlist(user_id: int, playlist_name: str) -> bool:
+    playlists = await get_user_playlists(user_id)
+    if playlist_name in playlists:
+        del playlists[playlist_name]
+        await playlistdb.update_one(
+            {"user_id": user_id}, {"$set": {"playlists": playlists}}
+        )
+        return True
+    return False
+
+
+async def remove_song_from_playlist(user_id: int, playlist_name: str, videoid: str) -> bool:
+    playlists = await get_user_playlists(user_id)
+    if playlist_name in playlists:
+        playlists[playlist_name] = [s for s in playlists[playlist_name] if s.get("videoid") != videoid]
+        await playlistdb.update_one(
+            {"user_id": user_id}, {"$set": {"playlists": playlists}}
+        )
+        return True
+    return False
