@@ -24,7 +24,7 @@ from EsproMusic.utils.database import (
 from EsproMusic.utils.stream.stream import stream
 from config import BANNED_USERS
 
-# Safe import for language strings across different bot forks
+# Safe import for language strings
 try:
     from strings import get_string
 except ImportError:
@@ -183,9 +183,9 @@ async def play_user_playlist_in_gc(client, message: Message):
     if not songs:
         return await message.reply_text(f"❌ Your playlist **{playlist_name}** is empty!")
 
-    mystic = await message.reply_text("🔄 **Stopping current track & loading playlist...**")
+    mystic = await message.reply_text("🔄 **Loading playlist...**")
 
-    # Load Language dictionary for stream translation
+    # Load Language dictionary
     try:
         language = await get_lang(chat_id)
         _ = get_string(language)
@@ -195,7 +195,7 @@ async def play_user_playlist_in_gc(client, message: Message):
                 return self.get(item, "")
         _ = DummyLang()
 
-    # Clear current queue and stop stream
+    # Clear current queue & stop ongoing stream
     try:
         db[chat_id] = []
         if hasattr(Espro, "stop_stream"):
@@ -206,48 +206,81 @@ async def play_user_playlist_in_gc(client, message: Message):
         pass
 
     user_name = message.from_user.first_name
-    count = 0
 
-    for song in songs:
-        videoid = song.get("videoid")
-        url = f"https://www.youtube.com/watch?v={videoid}"
+    # 1. Play first song via stream()
+    first_song = songs[0]
+    videoid_0 = first_song.get("videoid")
+    url_0 = f"https://www.youtube.com/watch?v={videoid_0}"
 
-        # Fetch track details dictionary required by stream()
-        details = None
+    first_details = None
+    if youtube:
+        try:
+            first_details, _id = await youtube.track(videoid_0, True)
+        except Exception:
+            first_details = None
+
+    if not first_details:
+        first_details = {
+            "title": first_song.get("title", "Telegram Playlist Song"),
+            "link": url_0,
+            "vidid": videoid_0,
+            "duration_min": "00:00",
+        }
+
+    try:
+        await stream(
+            _,
+            mystic,
+            user_id,
+            first_details,
+            chat_id,
+            user_name,
+            message.chat.id,
+            video=None,
+            streamtype="playlist",
+        )
+    except Exception as e:
+        print(f"Error streaming first song: {e}")
+
+    # 2. Add remaining songs directly to background queue (`db[chat_id]`)
+    if chat_id not in db:
+        db[chat_id] = []
+
+    added_count = 1
+    for song in songs[1:]:
+        v_id = song.get("videoid")
+        if not v_id:
+            continue
+
+        u_link = f"https://www.youtube.com/watch?v={v_id}"
+        s_title = song.get("title", "Telegram Playlist Song")
+
+        d_item = {
+            "title": s_title,
+            "link": u_link,
+            "vidid": v_id,
+            "duration_min": "00:00",
+            "user": user_name,
+            "user_id": user_id,
+            "streamtype": "youtube",
+            "file": None,
+        }
+
         if youtube:
             try:
-                details, _id = await youtube.track(videoid, True)
+                yt_details, _id = await youtube.track(v_id, True)
+                if yt_details:
+                    d_item.update({
+                        "title": yt_details.get("title", s_title),
+                        "duration_min": yt_details.get("duration_min", "00:00"),
+                    })
             except Exception:
-                details = None
+                pass
 
-        if not details:
-            details = {
-                "title": song.get("title", "Telegram Playlist Song"),
-                "link": url,
-                "vidid": videoid,
-                "duration_min": "00:00",
-            }
+        db[chat_id].append(d_item)
+        added_count += 1
 
-        try:
-            await stream(
-                _,
-                mystic,
-                user_id,
-                details,
-                chat_id,
-                user_name,
-                message.chat.id,
-                video=None,
-                streamtype="playlist",
-            )
-            count += 1
-        except Exception as e:
-            print(f"Error playing song {videoid}: {e}")
-
-    if count > 0:
-        await mystic.edit_text(
-            f"✅ **Playlist '{playlist_name}' started successfully!**\n"
-            f"🎵 **Total Songs Queued:** {count}"
-        )
-    else:
-        await mystic.edit_text("❌ Failed to stream songs from this playlist. Check VPS terminal logs.")
+    await message.reply_text(
+        f"✅ **Playlist '{playlist_name}' loaded!**\n"
+        f"🎵 **Total Songs Queued:** {added_count}"
+    )
