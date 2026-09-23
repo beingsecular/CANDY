@@ -1,14 +1,12 @@
 import math
-
 from pyrogram.types import InlineKeyboardButton
-
+from EsproMusic import app
 from EsproMusic.utils.formatters import time_to_seconds
 
 
 def _autoplay_label(chat_id) -> str:
     try:
         from EsproMusic.plugins.tools.autoplay import autoplay_label
-
         return autoplay_label(chat_id)
     except Exception:
         return "🔄 AutoPlay"
@@ -36,7 +34,7 @@ def track_markup(_, videoid, user_id, channel, fplay):
     return buttons
 
 
-def stream_markup_timer(_, chat_id, played, dur):
+def stream_markup_timer(_, chat_id, played, dur, videoid=""):
     played_sec = time_to_seconds(played)
     duration_sec = time_to_seconds(dur)
     percentage = (played_sec / duration_sec) * 100
@@ -61,6 +59,7 @@ def stream_markup_timer(_, chat_id, played, dur):
         bar = "————————◉—"
     else:
         bar = "—————————◉"
+
     buttons = [
         [
             InlineKeyboardButton(text="▷", callback_data=f"ADMIN Resume|{chat_id}"),
@@ -77,6 +76,16 @@ def stream_markup_timer(_, chat_id, played, dur):
         ],
         [
             InlineKeyboardButton(
+                text=f"➕ Add to Playlist",
+                url=f"https://t.me/{app.username}?start=addpl_{videoid}" if videoid else f"https://t.me/{app.username}?start=my_playlists"
+            ),
+            InlineKeyboardButton(
+                text=f"🎵 My Playlists (DM)",
+                url=f"https://t.me/{app.username}?start=my_playlists"
+            )
+        ],
+        [
+            InlineKeyboardButton(
                 text=f"{played} {bar} {dur}",
                 callback_data="GetTimer",
             )
@@ -86,7 +95,7 @@ def stream_markup_timer(_, chat_id, played, dur):
     return buttons
 
 
-def stream_markup(_, chat_id):
+def stream_markup(_, chat_id, videoid=""):
     ap_text = _autoplay_label(chat_id)
     buttons = [
         [
@@ -101,6 +110,16 @@ def stream_markup(_, chat_id):
                 text=ap_text,
                 callback_data=f"ADMIN AutoPlay|{chat_id}",
             ),
+        ],
+        [
+            InlineKeyboardButton(
+                text=f"➕ Add to Playlist",
+                url=f"https://t.me/{app.username}?start=addpl_{videoid}" if videoid else f"https://t.me/{app.username}?start=my_playlists"
+            ),
+            InlineKeyboardButton(
+                text=f"🎵 My Playlists (DM)",
+                url=f"https://t.me/{app.username}?start=my_playlists"
+            )
         ],
         [InlineKeyboardButton(text=_["CLOSE_BUTTON"], callback_data="close")],
     ]
