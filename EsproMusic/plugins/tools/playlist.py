@@ -3,6 +3,7 @@ from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message, 
 
 from EsproMusic import app
 from EsproMusic.misc import db
+import config
 
 # Safe import for Call instance
 try:
@@ -217,11 +218,17 @@ async def play_user_playlist_in_gc(client, message: Message):
 
     user_name = message.from_user.first_name
 
-    # 3. Process first song safely
+    # 3. Process first song with all required keys (thumb, title, duration_min, etc.)
     first_song = songs[0]
     videoid_0 = first_song.get("videoid")
     title_0 = first_song.get("title", "Playlist Song")
     url_0 = f"https://www.youtube.com/watch?v={videoid_0}" if videoid_0 else title_0
+
+    default_thumb = (
+        f"https://img.youtube.com/vi/{videoid_0}/hqdefault.jpg"
+        if videoid_0
+        else getattr(config, "YOUTUBE_IMG_URL", "https://telegra.ph/file/c8f2052028238627e1f33.jpg")
+    )
 
     first_details = None
     if youtube and videoid_0:
@@ -236,19 +243,26 @@ async def play_user_playlist_in_gc(client, message: Message):
             "link": url_0,
             "vidid": videoid_0 or "none",
             "duration_min": "03:00",
+            "thumb": default_thumb,
+            "by": user_name,
         }
+    else:
+        if "thumb" not in first_details or not first_details["thumb"]:
+            first_details["thumb"] = default_thumb
 
     # 4. Add remaining playlist songs to background queue (`db[chat_id]`)
     for song in songs[1:]:
         v_id = song.get("videoid")
         s_title = song.get("title", "Playlist Song")
         u_link = f"https://www.youtube.com/watch?v={v_id}" if v_id else s_title
+        s_thumb = f"https://img.youtube.com/vi/{v_id}/hqdefault.jpg" if v_id else default_thumb
 
         d_item = {
             "title": s_title,
             "link": u_link,
             "vidid": v_id or "none",
             "duration_min": "03:00",
+            "thumb": s_thumb,
             "user": user_name,
             "user_id": user_id,
             "streamtype": "youtube",
@@ -256,7 +270,7 @@ async def play_user_playlist_in_gc(client, message: Message):
         }
         db[chat_id].append(d_item)
 
-    # 5. Play first song
+    # 5. Play first song immediately
     try:
         await stream(
             _,
@@ -272,7 +286,4 @@ async def play_user_playlist_in_gc(client, message: Message):
         )
     except Exception as e:
         print(f"Error streaming first song: {e}")
-        await mystic.edit_text(
-            "❌ **Failed to fetch track from YouTube.**\n"
-            "Please update `yt-dlp` or add `cookies.txt` on your VPS."
-        )
+        await mystic.edit_text(f"❌ **Error starting stream:** `{e}`")
