@@ -788,3 +788,14 @@ async def playlist_text_input_handler(client, message: Message):
             await client.edit_message_text(chat_id, msg_id, text, reply_markup=InlineKeyboardMarkup(buttons))
         except Exception:
             await message.reply_text(text, reply_markup=InlineKeyboardMarkup(buttons))
+
+# ==============================================================================
+# COMPATIBILITY ALIAS FOR OLD IMPORTS
+# ==============================================================================
+async def show_my_playlists_menu(client, message: Message):
+    """
+    Alias function so old modules importing show_my_playlists_menu won't crash.
+    """
+    user_id = message.from_user.id
+    text, reply_markup = await render_my_playlists_screen(user_id)
+    return await message.reply_text(text, reply_markup=reply_markup)
