@@ -18,12 +18,12 @@ import config
 
 # Safe import for Call / Stream instance
 try:
-    from EsproMusic.core.call import Espro
+    from EsproMusic.core.call import Ritik as EsproCall
 except ImportError:
     try:
-        from EsproMusic.core.call import EsproMusic as Espro
+        from EsproMusic.core.call import Espro as EsproCall
     except ImportError:
-        from EsproMusic.core.call import Call as Espro
+        from EsproMusic.core.call import Call as EsproCall
 
 from EsproMusic.utils.database import (
     get_lang,
@@ -31,24 +31,14 @@ from EsproMusic.utils.database import (
     remove_active_video_chat,
 )
 from EsproMusic.utils.stream.stream import stream
-from EsproMusic.utils.stream.queue import put_queue  # NEW: proper queue format
 from config import BANNED_USERS
 
 # Safe import for YouTube search helper
-youtube = None
 try:
-    # Most forks: YouTube instance already created in EsproMusic/__init__.py
-    from EsproMusic import YouTube as youtube
+    from EsproMusic.platforms import YouTube
+    youtube = YouTube()
 except Exception:
-    try:
-        from EsproMusic.platforms import YouTube as _YT
-        youtube = _YT() if isinstance(_YT, type) else _YT
-    except Exception:
-        try:
-            from EsproMusic.platforms import YouTubeAPI as _YT
-            youtube = _YT() if isinstance(_YT, type) else _YT
-        except Exception:
-            youtube = None
+    youtube = None
 
 
 # ==============================================================================
@@ -58,7 +48,6 @@ playlist_collection = mongodb.playlists_v2
 
 
 async def db_get_user_playlists(user_id: int):
-    """Fetch all playlists belonging to a specific user."""
     cursor = playlist_collection.find({"user_id": user_id})
     playlists = []
     async for doc in cursor:
@@ -67,14 +56,12 @@ async def db_get_user_playlists(user_id: int):
 
 
 async def db_get_playlist(user_id: int, playlist_id: str):
-    """Fetch a specific playlist belonging to a user."""
     return await playlist_collection.find_one(
         {"user_id": user_id, "playlist_id": playlist_id}
     )
 
 
 async def db_create_playlist(user_id: int, name: str):
-    """Create a new empty playlist for a user."""
     existing = await playlist_collection.find_one(
         {"user_id": user_id, "name": name}
     )
@@ -94,7 +81,6 @@ async def db_create_playlist(user_id: int, name: str):
 
 
 async def db_add_song_to_playlist(user_id: int, playlist_id: str, song_data: dict):
-    """Add a song object into a specific user playlist."""
     playlist = await db_get_playlist(user_id, playlist_id)
     if not playlist:
         return False, "NOT_FOUND"
@@ -111,7 +97,6 @@ async def db_add_song_to_playlist(user_id: int, playlist_id: str, song_data: dic
         "added_at": time.time(),
     }
 
-    # Check duplicate video ID in playlist
     for s in playlist.get("songs", []):
         if s.get("vidid") and s.get("vidid") != "none" and s.get("vidid") == song_entry["vidid"]:
             return False, "DUPLICATE"
@@ -124,7 +109,6 @@ async def db_add_song_to_playlist(user_id: int, playlist_id: str, song_data: dic
 
 
 async def db_delete_playlist(user_id: int, playlist_id: str):
-    """Permanently delete a playlist belonging to user."""
     res = await playlist_collection.delete_one(
         {"user_id": user_id, "playlist_id": playlist_id}
     )
@@ -132,7 +116,6 @@ async def db_delete_playlist(user_id: int, playlist_id: str):
 
 
 async def db_remove_song(user_id: int, playlist_id: str, song_id: str):
-    """Remove a single song from a playlist."""
     res = await playlist_collection.update_one(
         {"user_id": user_id, "playlist_id": playlist_id},
         {"$pull": {"songs": {"song_id": song_id}}},
@@ -144,7 +127,6 @@ async def db_remove_song(user_id: int, playlist_id: str, song_id: str):
 # ROBUST TRACK RESOLVER
 # ==============================================================================
 def extract_yt_id(url_or_id: str):
-    """Extract valid 11-character YouTube video ID."""
     if not url_or_id or str(url_or_id).lower() in ["none", "null", ""]:
         return None
     url_or_id = str(url_or_id).strip()
@@ -157,7 +139,6 @@ def extract_yt_id(url_or_id: str):
 
 
 async def resolve_youtube_track(query: str, vidid: str = None, url: str = None):
-    """Guarantees a valid 11-char YouTube Video ID and streaming link."""
     existing_id = extract_yt_id(vidid) or extract_yt_id(url) or extract_yt_id(query)
     if existing_id:
         return {
@@ -224,29 +205,6 @@ async def resolve_youtube_track(query: str, vidid: str = None, url: str = None):
                     "duration_min": first_res.get("duration", "03:00"),
                     "thumb": f"https://i.ytimg.com/vi/{v_id}/hqdefault.jpg",
                 }
-    except Exception:
-        pass
-
-    try:
-        import yt_dlp
-        def yt_search_sync(q):
-            ydl_opts = {'quiet': True, 'extract_flat': True, 'skip_download': True}
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(f"ytsearch1:{q}", download=False)
-                if info and 'entries' in info and len(info['entries']) > 0:
-                    entry = info['entries'][0]
-                    return entry.get('id'), entry.get('title')
-            return None, None
-
-        v_id, v_title = await asyncio.to_thread(yt_search_sync, search_query)
-        if v_id:
-            return {
-                "vidid": v_id,
-                "title": v_title or search_query,
-                "link": f"https://www.youtube.com/watch?v={v_id}",
-                "duration_min": "03:00",
-                "thumb": f"https://i.ytimg.com/vi/{v_id}/hqdefault.jpg",
-            }
     except Exception:
         pass
 
@@ -365,17 +323,6 @@ async def render_playlist_details_screen(user_id: int, playlist_id: str, page: i
     return text, InlineKeyboardMarkup(full_keyboard)
 
 
-async def show_my_playlists_menu(client, message_or_cb):
-    if isinstance(message_or_cb, Message):
-        user_id = message_or_cb.from_user.id
-        text, reply_markup = await render_my_playlists_screen(user_id)
-        await message_or_cb.reply_text(text, reply_markup=reply_markup)
-    elif isinstance(message_or_cb, CallbackQuery):
-        user_id = message_or_cb.from_user.id
-        text, reply_markup = await render_my_playlists_screen(user_id)
-        await message_or_cb.message.edit_text(text, reply_markup=reply_markup)
-
-
 # ==============================================================================
 # ROUTER & CALLBACK HANDLER
 # ==============================================================================
@@ -423,93 +370,6 @@ async def playlist_callback_router(client, cb: CallbackQuery):
         text, reply_markup = await render_playlist_details_screen(user_id, playlist_id, page)
         await cb.message.edit_text(text, reply_markup=reply_markup)
         await cb.answer()
-
-    elif action == "add_current":
-        chat_id = cb.message.chat.id
-        active_track = None
-        if chat_id in db and db[chat_id]:
-            active_track = db[chat_id][0]
-
-        if not active_track:
-            return await cb.answer("❌ No active track found playing right now!", show_alert=True)
-
-        playlists = await db_get_user_playlists(user_id)
-        if not playlists:
-            text = (
-                "🎵 **Add Song to Playlist**\n\n"
-                "You don't have any playlist yet! Create one first to save this song."
-            )
-            buttons = [
-                [InlineKeyboardButton("➕ Create Playlist", callback_data="playlist:create")],
-                [InlineKeyboardButton("⬅️ Back", callback_data="close_cb")],
-            ]
-            return await cb.message.edit_text(text, reply_markup=InlineKeyboardMarkup(buttons))
-
-        text = (
-            "🎵 **Add Song to Playlist**\n\n"
-            f"**Current Track:** `{active_track.get('title', 'Unknown Track')}`\n\n"
-            "Choose a playlist where you want to save this song:"
-        )
-
-        buttons = []
-        for pl in playlists:
-            pl_id = pl.get("playlist_id")
-            pl_name = pl.get("name")
-            buttons.append([
-                InlineKeyboardButton(f"📁 {pl_name}", callback_data=f"playlist:save_curr:{pl_id}")
-            ])
-
-        buttons.append([InlineKeyboardButton("➕ Create New Playlist", callback_data="playlist:create")])
-        buttons.append([InlineKeyboardButton("⬅️ Back", callback_data="close_cb")])
-
-        await cb.message.edit_text(text, reply_markup=InlineKeyboardMarkup(buttons))
-        await cb.answer()
-
-    elif action == "save_curr":
-        playlist_id = data[2]
-        chat_id = cb.message.chat.id
-
-        active_track = None
-        if chat_id in db and db[chat_id]:
-            active_track = db[chat_id][0]
-
-        if not active_track:
-            return await cb.answer("❌ Active song expired or stopped.", show_alert=True)
-
-        resolved = await resolve_youtube_track(
-            query=active_track.get("title", ""),
-            vidid=active_track.get("vidid"),
-            url=active_track.get("link"),
-        )
-
-        song_data = {
-            "title": resolved["title"] if resolved else active_track.get("title", "Unknown Track"),
-            "artist": active_track.get("user", "Artist"),
-            "vidid": resolved["vidid"] if resolved else "none",
-            "url": resolved["link"] if resolved else "",
-            "duration": resolved["duration_min"] if resolved else "03:00",
-            "thumbnail": resolved["thumb"] if resolved else "",
-        }
-
-        success, res = await db_add_song_to_playlist(user_id, playlist_id, song_data)
-        playlist = await db_get_playlist(user_id, playlist_id)
-        pl_name = playlist.get("name") if playlist else "Playlist"
-
-        if res == "DUPLICATE":
-            return await cb.answer(f"⚠️ Track already exists in '{pl_name}'!", show_alert=True)
-
-        text = (
-            "✅ **Song Added Successfully!**\n\n"
-            f"🎵 **Track:** `{song_data['title']}`\n"
-            f"📁 **Playlist:** `{pl_name}`"
-        )
-        buttons = [
-            [InlineKeyboardButton("🎵 View Playlist", callback_data=f"playlist:view:{playlist_id}:1")],
-            [InlineKeyboardButton("🎶 My Playlists", callback_data="playlist:list")],
-            [InlineKeyboardButton("❌ Close", callback_data="close_cb")],
-        ]
-        await cb.message.edit_text(text, reply_markup=InlineKeyboardMarkup(buttons))
-        await cb.answer("Added to playlist!")
 
     elif action == "add_manual":
         playlist_id = data[2]
@@ -630,9 +490,8 @@ async def playlist_callback_router(client, cb: CallbackQuery):
         text = (
             f"▶️ **Play Playlist in Group Chat**\n\n"
             f"📁 **Playlist:** `{pl_name}` ({len(playlist['songs'])} songs)\n\n"
-            f"👇 **Neeche diya gaya command copy karke apne Group Chat (GC) mein bhejain:**\n\n"
-            f"`{cmd}`\n\n"
-            f"✨ *Yeh command group mein daalte hi playlist start ho jayegi!*"
+            f"👇 **Group mein bhejain:**\n\n"
+            f"`{cmd}`"
         )
         buttons = [
             [InlineKeyboardButton("⬅️ Back to Playlist", callback_data=f"playlist:view:{playlist_id}:1")],
@@ -651,21 +510,17 @@ async def play_playlist_cmd(client, message: Message):
     user_id = message.from_user.id
 
     if message.chat.type.name == "PRIVATE":
-        return await message.reply_text(
-            "⚠️ **This command works in Group Chats!**\n\n"
-            "Group mein jaakar ye command bhejain taaki voice chat mein playlist play ho sake."
-        )
+        return await message.reply_text("⚠️ **This command works in Group Chats!**")
 
     args = message.text.split()
     if len(args) < 2:
         playlists = await db_get_user_playlists(user_id)
         if not playlists:
             return await message.reply_text("❌ You don't have any saved playlists!")
-
+        
         text = "🎶 **Your Saved Playlists:**\n\n"
         for pl in playlists:
             text += f"• `{pl.get('name')}` ➡️ `/playplaylist {pl.get('playlist_id')}`\n"
-        text += "\nCopy the command and send it to play in GC!"
         return await message.reply_text(text)
 
     playlist_id = args[1]
@@ -691,13 +546,11 @@ async def play_playlist_cmd(client, message: Message):
     if not valid_queue:
         return await mystic.edit_text("❌ **Playlist ke gane YouTube par nahi mil paye!**")
 
-    # Clear queue and safely stop any current stream
+    # Clear queue and stop existing call stream
     db[chat_id] = []
     try:
-        if hasattr(Espro, "stop_stream"):
-            await Espro.stop_stream(chat_id)
-        elif hasattr(Espro, "stop_stream_force"):
-            await Espro.stop_stream_force(chat_id)
+        if hasattr(EsproCall, "stop_stream"):
+            await EsproCall.stop_stream(chat_id)
     except Exception:
         pass
 
@@ -719,19 +572,44 @@ async def play_playlist_cmd(client, message: Message):
                 return self.get(item, "")
         _ = DummyLang()
 
-    user_name = message.from_user.first_name
+    user_name = message.from_user.first_name if message.from_user else "User"
 
-    first = valid_queue[0]
+    # FIRST TRACK DETAILS FOR STREAM ENGINE
+    first_track = valid_queue[0]
     first_details = {
-        "title": first["title"],
-        "link": first["link"],
-        "vidid": first["vidid"],
-        "duration_min": first["duration_min"],
-        "thumb": first["thumb"],
+        "title": first_track["title"],
+        "link": first_track["link"],
+        "vidid": first_track["vidid"],
+        "dur": first_track["duration_min"],
+        "duration_min": first_track["duration_min"],
+        "thumb": first_track["thumb"],
+        "by": user_name,
+        "user": user_name,
+        "user_id": user_id,
+        "streamtype": "audio",
+        "file": f"vid_{first_track['vidid']}",
     }
 
+    # FORMAT REMAINING TRACKS INTO DB QUEUE (EXACT MATCH FOR SKIP.PY)
+    for song in valid_queue[1:]:
+        d_item = {
+            "title": song["title"],
+            "link": song["link"],
+            "vidid": song["vidid"],
+            "dur": song["duration_min"],
+            "duration_min": song["duration_min"],
+            "thumb": song["thumb"],
+            "by": user_name,
+            "user": user_name,
+            "user_id": user_id,
+            "streamtype": "audio",
+            "file": f"vid_{song['vidid']}",
+            "old_dur": song["duration_min"],
+            "old_second": 180,
+        }
+        db[chat_id].append(d_item)
+
     try:
-        # 1) Pehla song stream() se (db khaali hai, to ye index 0 banega)
         await stream(
             _,
             mystic,
@@ -744,90 +622,14 @@ async def play_playlist_cmd(client, message: Message):
             streamtype="youtube",
             forceplay=True,
         )
-
-        # 2) Baaki songs bot ki proper queue format mein
-        for song in valid_queue[1:]:
-            await put_queue(
-                chat_id,
-                chat_id,
-                f"vid_{song['vidid']}",
-                song["title"],
-                song["duration_min"],
-                user_name,
-                song["vidid"],
-                user_id,
-                "audio",
-            )
+        await mystic.edit_text(
+            f"▶️ **Playlist Playing in Group!**\n\n"
+            f"📁 **Name:** `{pl_name}`\n"
+            f"🎵 **Total Queued:** `{len(valid_queue)} songs`\n\n"
+            f"💡 *Ab aap normal `/skip` command se bhi playlist ke gane skip kar sakte hain!*"
+        )
     except Exception as e:
-        return await message.reply_text(f"❌ **Error playing playlist:** `{e}`")
-
-    await message.reply_text(
-        f"▶️ **Playlist Playing in Group!**\n\n"
-        f"📁 **Name:** `{pl_name}`\n"
-        f"🎵 **Total Queued:** `{len(valid_queue)} songs`\n\n"
-        f"💡 *Agla song skip karne ke liye `/plskip` bhejain!*"
-    )
-
-
-# ==============================================================================
-# GROUP COMMAND: /plskip & /playlistskip
-# ==============================================================================
-@app.on_message(filters.command(["plskip", "playlistskip"]) & ~BANNED_USERS)
-async def pl_skip_cmd(client, message: Message):
-    chat_id = message.chat.id
-    if message.chat.type.name == "PRIVATE":
-        return await message.reply_text("⚠️ **This command works in Group Chats!**")
-
-    check = db.get(chat_id)
-    if not check:
-        return await message.reply_text("❌ **Koi song play nahi ho raha!**")
-
-    # Current song hatao
-    try:
-        check.pop(0)
-    except Exception:
-        pass
-
-    # Queue khatam
-    if not check:
-        try:
-            if hasattr(Espro, "stop_stream"):
-                await Espro.stop_stream(chat_id)
-            elif hasattr(Espro, "stop_stream_force"):
-                await Espro.stop_stream_force(chat_id)
-        except Exception:
-            pass
-        try:
-            await remove_active_chat(chat_id)
-            await remove_active_video_chat(chat_id)
-        except Exception:
-            pass
-        return await message.reply_text("✅ **Playlist khatam ho gayi!**")
-
-    mystic = await message.reply_text("⏭️ **Skipping to next playlist song...**")
-
-    nxt = check[0]
-    queued = nxt.get("file", "")
-    videoid = nxt.get("vidid")
-    title = nxt.get("title", "Track")
-
-    try:
-        if isinstance(queued, str) and "vid_" in queued:
-            if youtube is None:
-                return await mystic.edit_text(
-                    "❌ YouTube helper load nahi hua. `from EsproMusic import YouTube` check karo."
-                )
-            file_path, direct = await youtube.download(
-                videoid, mystic, videoid=True, video=False
-            )
-        else:
-            file_path = queued
-
-        await Espro.skip_stream(chat_id, file_path, video=False, image=None)
-        nxt["played"] = 0
-        await mystic.edit_text(f"⏭️ **Skipped! Now playing:** `{title}`")
-    except Exception as e:
-        await mystic.edit_text(f"❌ **Error skipping track:** `{e}`")
+        await mystic.edit_text(f"❌ **Error playing playlist:** `{e}`")
 
 
 # ==============================================================================
