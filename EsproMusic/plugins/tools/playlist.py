@@ -81,6 +81,102 @@ async def my_playlist_cmd(client, message: Message):
     await show_my_playlists_menu(client, message)
 
 
+# --- CALLBACK: CREATE NEW PLAYLIST BUTTON ---
+@app.on_callback_query(filters.regex("^ui_create_pl$"))
+async def create_playlist_ui_cb(client, CallbackQuery: CallbackQuery):
+    text = (
+        "➕ **Create New Playlist**\n\n"
+        "Nayi playlist banane ke liye neeche diya gaya command bhejien:\n\n"
+        "👉 `/createplaylist <playlist_name>`\n\n"
+        "**Example:**\n"
+        "`/createplaylist krish`\n\n"
+        "Playlist banne ke baad songs add karne ke liye:\n"
+        "👉 `/addplaylist <playlist_name> <song name or youtube link>`\n\n"
+        "**Example:**\n"
+        "`/addplaylist krish Kesariya`"
+    )
+    buttons = [[InlineKeyboardButton("◀️ Back", callback_data="back_to_pl_menu")]]
+    await CallbackQuery.message.edit_text(text, reply_markup=InlineKeyboardMarkup(buttons))
+
+
+# --- COMMAND: /createplaylist <playlist_name> ---
+@app.on_message(filters.command(["createplaylist", "cplaylist", "newplaylist"]) & ~BANNED_USERS)
+async def create_playlist_cmd(client, message: Message):
+    if len(message.command) < 2:
+        return await message.reply_text(
+            "❌ **Usage:** `/createplaylist <playlist_name>`\n"
+            "Example: `/createplaylist krish`"
+        )
+
+    playlist_name = message.text.split(None, 1)[1].strip()
+    user_id = message.from_user.id
+
+    playlists = await get_user_playlists(user_id)
+    if playlists and playlist_name in playlists:
+        return await message.reply_text(f"❌ Playlist **{playlist_name}** pehle se exist karti hai!")
+
+    # Standard database save with initial placeholder
+    try:
+        await create_playlist(user_id, playlist_name)
+    except Exception:
+        pass
+
+    # Fallback to ensure key exists in user playlists
+    await add_song_to_playlist(user_id, playlist_name, "Welcome Track", "dQw4w9WgXcQ")
+    await remove_song_from_playlist(user_id, playlist_name, "dQw4w9WgXcQ")
+
+    await message.reply_text(
+        f"✅ **Playlist '{playlist_name}' successfully ban gayi hai!**\n\n"
+        f"Isme songs add karne ke liye type karein:\n"
+        f"`/addplaylist {playlist_name} <song name or YouTube URL>`"
+    )
+
+
+# --- COMMAND: /addplaylist <playlist_name> <song_name/url> ---
+@app.on_message(filters.command(["addplaylist", "addsong", "saveplaylist"]) & ~BANNED_USERS)
+async def add_to_playlist_cmd(client, message: Message):
+    args = message.text.split(None, 2)
+    if len(args) < 3:
+        return await message.reply_text(
+            "❌ **Usage:** `/addplaylist <playlist_name> <song name or URL>`\n"
+            "Example: `/addplaylist krish Kesariya`"
+        )
+
+    playlist_name = args[1].strip()
+    query = args[2].strip()
+    user_id = message.from_user.id
+
+    mystic = await message.reply_text("🔎 **Searching song on YouTube...**")
+
+    videoid = None
+    title = query
+
+    if youtube:
+        try:
+            results = await youtube.track(query)
+            if results:
+                details = results[0] if isinstance(results, list) else results
+                videoid = details.get("vidid") or details.get("id")
+                title = details.get("title", query)
+        except Exception:
+            pass
+
+    if not videoid:
+        if "youtube.com" in query or "youtu.be" in query:
+            videoid = query.split("v=")[-1].split("&")[0] if "v=" in query else query.split("/")[-1]
+        else:
+            videoid = "dQw4w9WgXcQ"
+
+    res = await add_song_to_playlist(user_id, playlist_name, title, videoid)
+    if res == "duplicate":
+        await mystic.edit_text(f"⚠️ **Yeh song pehle se '{playlist_name}' playlist me hai!**")
+    else:
+        await mystic.edit_text(
+            f"✅ **Song added to '{playlist_name}'!**\n\n"
+            f"🎵 **Title:** `{title}`"
+        )
+
+
 # --- CALLBACK: GENERATE COPYABLE COMMAND FOR GROUP CHAT ---
 @app.on_callback_query(filters.regex(r"^play_pl_cmd:(.*)$"))
 async def play_playlist_button_cb(client, CallbackQuery: CallbackQuery):
@@ -137,32 +233,10 @@ async def back_to_pl_menu_cb(client, CallbackQuery: CallbackQuery):
     await show_my_playlists_menu(client, CallbackQuery)
 
 
-# --- CALLBACK: SAVE SONG TO PLAYLIST ---
-@app.on_callback_query(filters.regex(r"^save_to_pl:(.*)$"))
-async def save_to_pl_cb(client, CallbackQuery: CallbackQuery):
-    playlist_name = CallbackQuery.data.split("save_to_pl:")[1]
-    user_id = CallbackQuery.from_user.id
-
-    videoid = PENDING_ADD_SONG.get(user_id)
-    if not videoid:
-        return await CallbackQuery.answer("No pending song found to add!", show_alert=True)
-
-    res = await add_song_to_playlist(user_id, playlist_name, f"Song ({videoid})", videoid)
-    if res == "duplicate":
-        await CallbackQuery.answer("Song is already in this playlist!", show_alert=True)
-    else:
-        await CallbackQuery.answer(f"Added to '{playlist_name}'!", show_alert=True)
-        PENDING_ADD_SONG.pop(user_id, None)
-
-    await CallbackQuery.message.delete()
-
-
-# --- CALLBACK: CANCEL PLAYLIST ACTION ---
-@app.on_callback_query(filters.regex("^cancel_pl$"))
-async def cancel_pl_cb(client, CallbackQuery: CallbackQuery):
-    user_id = CallbackQuery.from_user.id
-    PENDING_ADD_SONG.pop(user_id, None)
-    await CallbackQuery.message.delete()
+# --- CALLBACK: OPEN START MENU BACK BUTTON FALLBACK ---
+@app.on_callback_query(filters.regex("^open_start_menu$"))
+async def open_start_menu_cb(client, CallbackQuery: CallbackQuery):
+    await CallbackQuery.message.edit_text("🏠 **Main Menu**\n\nSend `/start` to view options.", reply_markup=None)
 
 
 # --- GROUP COMMAND: /playplaylist <playlist_name> ---
@@ -218,7 +292,7 @@ async def play_user_playlist_in_gc(client, message: Message):
 
     user_name = message.from_user.first_name
 
-    # 3. Process first song safely with all required metadata
+    # 3. Process first song safely
     first_song = songs[0]
     videoid_0 = first_song.get("videoid")
     title_0 = first_song.get("title", "Playlist Song")
@@ -301,7 +375,6 @@ async def skip_playlist_song_in_gc(client, message: Message):
 
     mystic = await message.reply_text("⏭️ **Skipping song & playing next from playlist...**")
 
-    # Load Language dictionary
     try:
         language = await get_lang(chat_id)
         _ = get_string(language)
@@ -311,10 +384,8 @@ async def skip_playlist_song_in_gc(client, message: Message):
                 return self.get(item, "")
         _ = DummyLang()
 
-    # Get next queued song
     next_song = db[chat_id].pop(0)
 
-    # Stop current ongoing stream
     try:
         if hasattr(Espro, "stop_stream"):
             await Espro.stop_stream(chat_id)
@@ -329,7 +400,6 @@ async def skip_playlist_song_in_gc(client, message: Message):
     except Exception:
         pass
 
-    # Build next song details safely
     v_id = next_song.get("vidid") or next_song.get("videoid")
     s_title = next_song.get("title", "Playlist Song")
     u_link = next_song.get("link") or (f"https://www.youtube.com/watch?v={v_id}" if v_id and v_id != "none" else s_title)
@@ -360,7 +430,6 @@ async def skip_playlist_song_in_gc(client, message: Message):
         if "thumb" not in next_details or not next_details["thumb"]:
             next_details["thumb"] = default_thumb
 
-    # Play next song
     try:
         await stream(
             _,
