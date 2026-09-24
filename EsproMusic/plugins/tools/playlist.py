@@ -324,6 +324,73 @@ async def render_playlist_details_screen(user_id: int, playlist_id: str, page: i
 
 
 # ==============================================================================
+# MAIN COMMAND HANDLER: /playlist & /myplaylist
+# ==============================================================================
+@app.on_message(filters.command(["playlist", "myplaylist"]) & ~BANNED_USERS)
+async def my_playlist_cmd(client, message: Message):
+    user_id = message.from_user.id
+    text, reply_markup = await render_my_playlists_screen(user_id)
+    await message.reply_text(text, reply_markup=reply_markup)
+
+
+# ==============================================================================
+# CLOSE BUTTON CALLBACK
+# ==============================================================================
+@app.on_callback_query(filters.regex(r"^close_cb$") & ~BANNED_USERS)
+async def close_cb_handler(client, cb: CallbackQuery):
+    try:
+        await cb.message.delete()
+    except Exception:
+        pass
+
+
+# ==============================================================================
+# ADD TO PLAYLIST FROM GROUP STREAM BUTTON
+# ==============================================================================
+@app.on_callback_query(filters.regex(r"^add_playlist") & ~BANNED_USERS)
+async def add_playlist_from_stream(client, cb: CallbackQuery):
+    try:
+        chat_id = int(cb.data.split()[1])
+    except Exception:
+        chat_id = cb.message.chat.id
+
+    playing = db.get(chat_id)
+    if not playing or len(playing) == 0:
+        return await cb.answer("❌ Abhi koi song play nahi ho raha hai!", show_alert=True)
+
+    track = playing[0]
+    vidid = track.get("vidid")
+    title = str(track.get("title", "Unknown Track")).title()
+
+    if not vidid or vidid in ["telegram", "soundcloud"]:
+        return await cb.answer("❌ Yeh track playlist mein add nahi ho sakta.", show_alert=True)
+
+    user_id = cb.from_user.id
+    user_playlists = await db_get_user_playlists(user_id)
+
+    if not user_playlists:
+        pl_id, status = await db_create_playlist(user_id, "My Favorite Songs")
+        target_pl_id = pl_id
+    else:
+        target_pl_id = user_playlists[0]["playlist_id"]
+
+    song_data = {
+        "title": title,
+        "artist": "YouTube",
+        "vidid": vidid,
+        "url": f"https://www.youtube.com/watch?v={vidid}",
+        "duration": str(track.get("dur", "03:00")),
+        "thumbnail": str(track.get("thumb", "")),
+    }
+
+    success, res = await db_add_song_to_playlist(user_id, target_pl_id, song_data)
+    if res == "DUPLICATE":
+        return await cb.answer("⚠️ Yeh song pehle se aapki playlist mein added hai!", show_alert=True)
+
+    await cb.answer(f"✅ '{title[:25]}' aapki playlist mein save ho gaya!", show_alert=True)
+
+
+# ==============================================================================
 # ROUTER & CALLBACK HANDLER
 # ==============================================================================
 @app.on_callback_query(filters.regex(r"^playlist:") & ~BANNED_USERS)
@@ -641,6 +708,10 @@ async def playlist_text_input_handler(client, message: Message):
     if user_id not in PLAYLIST_STATES:
         return
 
+    input_text = message.text.strip()
+    if input_text.startswith("/"):
+        return
+
     state_data = PLAYLIST_STATES.pop(user_id, None)
     if not state_data:
         return
@@ -648,7 +719,6 @@ async def playlist_text_input_handler(client, message: Message):
     state = state_data.get("state")
     chat_id = state_data.get("chat_id")
     msg_id = state_data.get("msg_id")
-    input_text = message.text.strip()
 
     if state == "WAITING_PLAYLIST_NAME":
         if not input_text or len(input_text) > 30:
