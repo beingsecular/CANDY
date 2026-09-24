@@ -218,7 +218,7 @@ async def play_user_playlist_in_gc(client, message: Message):
 
     user_name = message.from_user.first_name
 
-    # 3. Process first song with all required keys (thumb, title, duration_min, etc.)
+    # 3. Process first song safely with all required metadata
     first_song = songs[0]
     videoid_0 = first_song.get("videoid")
     title_0 = first_song.get("title", "Playlist Song")
@@ -287,3 +287,93 @@ async def play_user_playlist_in_gc(client, message: Message):
     except Exception as e:
         print(f"Error streaming first song: {e}")
         await mystic.edit_text(f"❌ **Error starting stream:** `{e}`")
+
+
+# --- GROUP COMMAND: /skippl OR /skipplaylist OR /pskip ---
+@app.on_message(filters.command(["skippl", "skipplaylist", "pskip"]) & filters.group & ~BANNED_USERS)
+async def skip_playlist_song_in_gc(client, message: Message):
+    chat_id = message.chat.id
+    user_id = message.from_user.id
+    user_name = message.from_user.first_name
+
+    if chat_id not in db or not db[chat_id]:
+        return await message.reply_text("❌ **Playlist queue me koi song bacha nahi hai!**")
+
+    mystic = await message.reply_text("⏭️ **Skipping song & playing next from playlist...**")
+
+    # Load Language dictionary
+    try:
+        language = await get_lang(chat_id)
+        _ = get_string(language)
+    except Exception:
+        class DummyLang(dict):
+            def __getitem__(self, item):
+                return self.get(item, "")
+        _ = DummyLang()
+
+    # Get next queued song
+    next_song = db[chat_id].pop(0)
+
+    # Stop current ongoing stream
+    try:
+        if hasattr(Espro, "stop_stream"):
+            await Espro.stop_stream(chat_id)
+        elif hasattr(Espro, "stop_stream_force"):
+            await Espro.stop_stream_force(chat_id)
+    except Exception:
+        pass
+
+    try:
+        await remove_active_chat(chat_id)
+        await remove_active_video_chat(chat_id)
+    except Exception:
+        pass
+
+    # Build next song details safely
+    v_id = next_song.get("vidid") or next_song.get("videoid")
+    s_title = next_song.get("title", "Playlist Song")
+    u_link = next_song.get("link") or (f"https://www.youtube.com/watch?v={v_id}" if v_id and v_id != "none" else s_title)
+
+    default_thumb = (
+        f"https://img.youtube.com/vi/{v_id}/hqdefault.jpg"
+        if v_id and v_id != "none"
+        else getattr(config, "YOUTUBE_IMG_URL", "https://telegra.ph/file/c8f2052028238627e1f33.jpg")
+    )
+
+    next_details = None
+    if youtube and v_id and v_id != "none":
+        try:
+            next_details, _id = await youtube.track(v_id, True)
+        except Exception:
+            next_details = None
+
+    if not next_details:
+        next_details = {
+            "title": s_title,
+            "link": u_link,
+            "vidid": v_id or "none",
+            "duration_min": next_song.get("duration_min", "03:00"),
+            "thumb": next_song.get("thumb", default_thumb),
+            "by": user_name,
+        }
+    else:
+        if "thumb" not in next_details or not next_details["thumb"]:
+            next_details["thumb"] = default_thumb
+
+    # Play next song
+    try:
+        await stream(
+            _,
+            mystic,
+            user_id,
+            next_details,
+            chat_id,
+            user_name,
+            message.chat.id,
+            video=None,
+            streamtype="youtube",
+            forceplay=True,
+        )
+    except Exception as e:
+        print(f"Error skipping playlist song: {e}")
+        await mystic.edit_text(f"❌ **Error playing next song:** `{e}`")
