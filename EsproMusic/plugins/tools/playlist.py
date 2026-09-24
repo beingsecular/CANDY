@@ -1,7 +1,6 @@
 import math
 import uuid
 import time
-import re
 from pyrogram import filters
 from pyrogram.types import (
     CallbackQuery,
@@ -41,103 +40,6 @@ except Exception:
 
 
 # ==============================================================================
-# ==============================================================================
-# YOUTUBE / PLAYLIST SONG HELPERS
-# ==============================================================================
-
-YOUTUBE_ID_RE = re.compile(r"^[A-Za-z0-9_-]{11}$")
-
-
-def normalize_youtube_id(value):
-    if not value:
-        return None
-    value = str(value).strip()
-    if value.lower() in {"none", "null", "unknown", "n/a"}:
-        return None
-    return value if YOUTUBE_ID_RE.fullmatch(value) else None
-
-
-def extract_youtube_id(value):
-    if not value:
-        return None
-    value = str(value).strip()
-
-    direct = normalize_youtube_id(value)
-    if direct:
-        return direct
-
-    patterns = (
-        r"(?:youtube\.com/watch\?[^#\s]*?v=)([A-Za-z0-9_-]{11})",
-        r"(?:youtu\.be/)([A-Za-z0-9_-]{11})",
-        r"(?:youtube\.com/shorts/)([A-Za-z0-9_-]{11})",
-        r"(?:youtube\.com/live/)([A-Za-z0-9_-]{11})",
-        r"(?:youtube\.com/embed/)([A-Za-z0-9_-]{11})",
-    )
-    for pattern in patterns:
-        match = re.search(pattern, value, re.IGNORECASE)
-        if match:
-            return match.group(1)
-    return None
-
-
-async def resolve_playlist_song(song_data: dict):
-    """Resolve a playlist song to a real YouTube ID. Never return 'none'."""
-    data = dict(song_data or {})
-    title = data.get("title") or "Unknown Track"
-    url = data.get("url") or data.get("link") or ""
-    vidid = normalize_youtube_id(data.get("vidid"))
-
-    if not vidid:
-        vidid = extract_youtube_id(url)
-
-    if not vidid and youtube:
-        query = url or title
-        try:
-            results = await youtube.track(query)
-            if results:
-                details = results[0] if isinstance(results, list) else results
-                vidid = normalize_youtube_id(
-                    details.get("vidid") or details.get("id")
-                )
-                if vidid:
-                    title = details.get("title") or title
-                    data["artist"] = (
-                        details.get("artist")
-                        or details.get("user")
-                        or data.get("artist")
-                        or "YouTube"
-                    )
-                    data["duration"] = (
-                        details.get("duration_min")
-                        or data.get("duration")
-                        or "03:00"
-                    )
-                    data["thumbnail"] = (
-                        details.get("thumb")
-                        or data.get("thumbnail")
-                        or ""
-                    )
-        except Exception:
-            pass
-
-    if not vidid:
-        return None
-
-    data["title"] = title
-    data["vidid"] = vidid
-    data["url"] = f"https://www.youtube.com/watch?v={vidid}"
-    return data
-
-
-async def prepare_playlist_songs(songs):
-    prepared = []
-    for song in songs:
-        resolved = await resolve_playlist_song(song)
-        if resolved:
-            prepared.append(resolved)
-    return prepared
-
-
 # DATABASE LAYER (Strict User Isolation with MongoDB)
 # ==============================================================================
 playlist_collection = mongodb.playlists_v2
@@ -186,17 +88,11 @@ async def db_add_song_to_playlist(user_id: int, playlist_id: str, song_data: dic
         return False, "NOT_FOUND"
 
     song_id = f"s_{uuid.uuid4().hex[:8]}"
-    real_vidid = normalize_youtube_id(song_data.get("vidid")) or extract_youtube_id(
-        song_data.get("url") or song_data.get("link")
-    )
-    if not real_vidid:
-        return False, "INVALID_VIDEO_ID"
-
     song_entry = {
         "song_id": song_id,
         "title": song_data.get("title", "Unknown Track"),
         "artist": song_data.get("artist", "Unknown Artist"),
-        "vidid": real_vidid,
+        "vidid": song_data.get("vidid", "none"),
         "url": song_data.get("url", ""),
         "duration": song_data.get("duration", "03:00"),
         "thumbnail": song_data.get("thumbnail", ""),
@@ -233,10 +129,56 @@ async def db_remove_song(user_id: int, playlist_id: str, song_id: str):
 
 
 # ==============================================================================
+# TRACK RESOLVER (Fixes 'Incomplete YouTube ID none' Error)
+# ==============================================================================
+async def get_valid_stream_details(song: dict):
+    """Ensures a song has a valid YouTube link or resolves it cleanly via title search."""
+    title = song.get("title", "Unknown Track")
+    vidid = song.get("vidid")
+    url = song.get("url", "")
+
+    if not url or "watch?v=none" in url or url == "none":
+        url = ""
+
+    if not vidid or vidid == "none":
+        vidid = None
+
+    # If both URL and vidid are broken/missing, resolve via YouTube Search
+    if not vidid or not url:
+        if youtube:
+            try:
+                results = await youtube.track(title)
+                if results:
+                    details = results[0] if isinstance(results, list) else results
+                    vidid = details.get("vidid") or details.get("id")
+                    title = details.get("title", title)
+                    url = details.get("link")
+                    thumb = details.get("thumb") or song.get("thumbnail") or ""
+                    dur = details.get("duration_min", song.get("duration", "03:00"))
+                    return {
+                        "title": title,
+                        "vidid": vidid or "none",
+                        "link": url or (f"https://www.youtube.com/watch?v={vidid}" if vidid else title),
+                        "duration_min": dur,
+                        "thumb": thumb,
+                    }
+            except Exception:
+                pass
+
+    final_link = url if url else (f"https://www.youtube.com/watch?v={vidid}" if vidid else title)
+    return {
+        "title": title,
+        "vidid": vidid or "none",
+        "link": final_link,
+        "duration_min": song.get("duration", "03:00"),
+        "thumb": song.get("thumbnail") or getattr(config, "YOUTUBE_IMG_URL", "https://telegra.ph/file/c8f2052028238627e1f33.jpg"),
+    }
+
+
+# ==============================================================================
 # STATE MANAGEMENT
 # ==============================================================================
 PLAYLIST_STATES = {}
-PLAYLIST_GROUP_CONTEXT = {}
 
 
 # ==============================================================================
@@ -384,10 +326,6 @@ async def playlist_callback_router(client, cb: CallbackQuery):
         if user_id in PLAYLIST_STATES:
             PLAYLIST_STATES.pop(user_id, None)
 
-        chat_type = getattr(cb.message.chat, "type", None)
-        if str(chat_type).lower() in {"group", "supergroup", "chattype.group", "chattype.supergroup"}:
-            PLAYLIST_GROUP_CONTEXT[user_id] = cb.message.chat.id
-
         text, reply_markup = await render_my_playlists_screen(user_id)
         await cb.message.edit_text(text, reply_markup=reply_markup)
         await cb.answer()
@@ -424,10 +362,6 @@ async def playlist_callback_router(client, cb: CallbackQuery):
 
     elif action == "add_current":
         chat_id = cb.message.chat.id
-
-        chat_type = getattr(cb.message.chat, "type", None)
-        if str(chat_type).lower() in {"group", "supergroup", "chattype.group", "chattype.supergroup"}:
-            PLAYLIST_GROUP_CONTEXT[user_id] = chat_id
         
         active_track = None
         if chat_id in db and db[chat_id]:
@@ -479,21 +413,19 @@ async def playlist_callback_router(client, cb: CallbackQuery):
         if not active_track:
             return await cb.answer("❌ Active song expired or stopped.", show_alert=True)
 
+        vid_id = active_track.get("vidid") or "none"
+        track_url = active_track.get("link", "")
+        if "watch?v=none" in track_url:
+            track_url = active_track.get("title", "")
+
         song_data = {
             "title": active_track.get("title", "Unknown Track"),
             "artist": active_track.get("user", "Artist"),
-            "vidid": active_track.get("vidid"),
-            "url": active_track.get("link", ""),
+            "vidid": vid_id,
+            "url": track_url,
             "duration": active_track.get("duration_min", "03:00"),
             "thumbnail": active_track.get("thumb", ""),
         }
-
-        song_data = await resolve_playlist_song(song_data)
-        if not song_data:
-            return await cb.answer(
-                "❌ Is song ka valid YouTube ID nahi mila. Song save nahi kiya gaya.",
-                show_alert=True,
-            )
 
         success, res = await db_add_song_to_playlist(user_id, playlist_id, song_data)
         playlist = await db_get_playlist(user_id, playlist_id)
@@ -625,175 +557,25 @@ async def playlist_callback_router(client, cb: CallbackQuery):
     elif action == "play":
         playlist_id = data[2]
         playlist = await db_get_playlist(user_id, playlist_id)
-
         if not playlist or not playlist.get("songs"):
             return await cb.answer("❌ Playlist is empty or does not exist!", show_alert=True)
 
-        chat_type = getattr(cb.message.chat, "type", None)
-        is_group = str(chat_type).lower() in {
-            "group", "supergroup", "chattype.group", "chattype.supergroup"
-        }
-
-        if is_group:
-            chat_id = cb.message.chat.id
-            PLAYLIST_GROUP_CONTEXT[user_id] = chat_id
-        else:
-            chat_id = PLAYLIST_GROUP_CONTEXT.get(user_id)
-
-        if not chat_id:
-            return await cb.answer(
-                "⚠️ Playlist ko GC me play karne ke liye playlist menu GC ke music player se kholo.",
-                show_alert=True,
-            )
-
         pl_name = playlist.get("name", "Playlist")
-        songs = playlist.get("songs", [])
+        cmd = f"/playplaylist {playlist_id}"
 
-        status_msg = await cb.message.reply_text(
-            f"🔄 **Starting playlist...**\n\n"
-            f"📁 `{pl_name}`\n"
-            f"🎵 `{len(songs)}` tracks"
+        text = (
+            f"▶️ **Play Playlist in Group Chat**\n\n"
+            f"📁 **Playlist:** `{pl_name}` ({len(playlist['songs'])} songs)\n\n"
+            f"👇 **Neeche diya gaya command copy karke apne Group Chat (GC) mein bhejain:**\n\n"
+            f"`{cmd}`\n\n"
+            f"✨ *Yeh command group mein daalte hi current playing song auto-skip ho jayega aur aapki playlist start ho jayegi!*"
         )
-
-        try:
-            played_count, skipped_count = await play_playlist_in_chat(
-                chat_id=chat_id,
-                user_id=user_id,
-                user_name=cb.from_user.first_name,
-                songs=songs,
-                playlist_name=pl_name,
-                status_message=status_msg,
-            )
-
-            result_text = (
-                f"▶️ **Playlist Playing!**\n\n"
-                f"📁 **{pl_name}**\n"
-                f"🎵 **{played_count} tracks queued**"
-            )
-            if skipped_count:
-                result_text += f"\n⚠️ **{skipped_count} invalid tracks skipped**"
-
-            if is_group:
-                try:
-                    await cb.message.edit_text(
-                        result_text,
-                        reply_markup=InlineKeyboardMarkup([
-                            [InlineKeyboardButton(
-                                "🎵 View Playlist",
-                                callback_data=f"playlist:view:{playlist_id}:1"
-                            )],
-                            [InlineKeyboardButton(
-                                "🎶 My Playlists",
-                                callback_data="playlist:list"
-                            )],
-                        ]),
-                    )
-                except Exception:
-                    pass
-            else:
-                await status_msg.edit_text(result_text)
-
-            await cb.answer("▶️ Playlist started!")
-        except Exception as e:
-            try:
-                await status_msg.edit_text(f"❌ **Could not play playlist**\n\n`{e}`")
-            except Exception:
-                pass
-            await cb.answer("❌ Playlist playback failed.", show_alert=True)
-
-
-async def play_playlist_in_chat(
-    chat_id: int,
-    user_id: int,
-    user_name: str,
-    songs: list,
-    playlist_name: str,
-    status_message,
-):
-    """Start a saved playlist directly in a group. No command required."""
-    prepared = await prepare_playlist_songs(songs)
-
-    if not prepared:
-        raise ValueError("Playlist me koi playable YouTube song nahi mila.")
-
-    skipped_count = len(songs) - len(prepared)
-
-    db[chat_id] = []
-
-    try:
-        if hasattr(Espro, "stop_stream"):
-            await Espro.stop_stream(chat_id)
-        elif hasattr(Espro, "stop_stream_force"):
-            await Espro.stop_stream_force(chat_id)
-    except Exception:
-        pass
-
-    try:
-        await remove_active_chat(chat_id)
-        await remove_active_video_chat(chat_id)
-    except Exception:
-        pass
-
-    try:
-        language = await get_lang(chat_id)
-        from strings import get_string
-        _ = get_string(language)
-    except Exception:
-        class DummyLang(dict):
-            def __getitem__(self, item):
-                return self.get(item, "")
-        _ = DummyLang()
-
-    first_song = prepared[0]
-    default_thumb = (
-        first_song.get("thumbnail")
-        or getattr(
-            config,
-            "YOUTUBE_IMG_URL",
-            "https://telegra.ph/file/c8f2052028238627e1f33.jpg",
-        )
-    )
-
-    first_details = {
-        "title": first_song.get("title", "Playlist Song"),
-        "link": first_song["url"],
-        "vidid": first_song["vidid"],
-        "duration_min": first_song.get("duration", "03:00"),
-        "thumb": default_thumb,
-        "by": user_name,
-        "user": user_name,
-        "user_id": user_id,
-        "streamtype": "youtube",
-        "file": None,
-    }
-
-    for song in prepared[1:]:
-        db[chat_id].append({
-            "title": song.get("title", "Playlist Song"),
-            "link": song["url"],
-            "vidid": song["vidid"],
-            "duration_min": song.get("duration", "03:00"),
-            "thumb": song.get("thumbnail") or default_thumb,
-            "user": user_name,
-            "user_id": user_id,
-            "streamtype": "youtube",
-            "file": None,
-        })
-
-    await stream(
-        _,
-        status_message,
-        user_id,
-        first_details,
-        chat_id,
-        user_name,
-        chat_id,
-        video=None,
-        streamtype="youtube",
-        forceplay=True,
-    )
-
-    return len(prepared), skipped_count
+        buttons = [
+            [InlineKeyboardButton("⬅️ Back to Playlist", callback_data=f"playlist:view:{playlist_id}:1")],
+            [InlineKeyboardButton("❌ Close", callback_data="close_cb")]
+        ]
+        await cb.message.edit_text(text, reply_markup=InlineKeyboardMarkup(buttons))
+        await cb.answer()
 
 
 # ==============================================================================
@@ -830,7 +612,17 @@ async def play_playlist_cmd(client, message: Message):
     songs = playlist["songs"]
     pl_name = playlist.get("name", "Playlist")
 
-    mystic = await message.reply_text("🔄 **Skipping current track & starting playlist...**")
+    mystic = await message.reply_text("🔄 **Resolving tracks & starting playlist...**")
+
+    # Resolve all tracks to valid links/IDs to avoid YouTube truncated ID errors
+    valid_queue = []
+    for song in songs:
+        resolved = await get_valid_stream_details(song)
+        if resolved:
+            valid_queue.append(resolved)
+
+    if not valid_queue:
+        return await mystic.edit_text("❌ **Failed to resolve playable songs in this playlist.**")
 
     # Clear current queue and stop ongoing stream in GC
     db[chat_id] = []
@@ -860,37 +652,23 @@ async def play_playlist_cmd(client, message: Message):
 
     user_name = message.from_user.first_name
 
-    first_song = songs[0]
-    v_id_0 = first_song.get("vidid")
-    title_0 = first_song.get("title", "Playlist Song")
-    url_0 = first_song.get("url") or (f"https://www.youtube.com/watch?v={v_id_0}" if v_id_0 and v_id_0 != "none" else title_0)
-
-    default_thumb = (
-        first_song.get("thumbnail")
-        or getattr(config, "YOUTUBE_IMG_URL", "https://telegra.ph/file/c8f2052028238627e1f33.jpg")
-    )
-
+    first_track = valid_queue[0]
     first_details = {
-        "title": title_0,
-        "link": url_0,
-        "vidid": v_id_0 or "none",
-        "duration_min": first_song.get("duration", "03:00"),
-        "thumb": default_thumb,
+        "title": first_track["title"],
+        "link": first_track["link"],
+        "vidid": first_track["vidid"],
+        "duration_min": first_track["duration_min"],
+        "thumb": first_track["thumb"],
         "by": user_name,
     }
 
-    for song in songs[1:]:
-        v_id = song.get("vidid")
-        s_title = song.get("title", "Playlist Song")
-        u_link = song.get("url") or (f"https://www.youtube.com/watch?v={v_id}" if v_id and v_id != "none" else s_title)
-        s_thumb = song.get("thumbnail") or default_thumb
-
+    for song in valid_queue[1:]:
         d_item = {
-            "title": s_title,
-            "link": u_link,
-            "vidid": v_id or "none",
-            "duration_min": song.get("duration", "03:00"),
-            "thumb": s_thumb,
+            "title": song["title"],
+            "link": song["link"],
+            "vidid": song["vidid"],
+            "duration_min": song["duration_min"],
+            "thumb": song["thumb"],
             "user": user_name,
             "user_id": user_id,
             "streamtype": "youtube",
@@ -914,7 +692,7 @@ async def play_playlist_cmd(client, message: Message):
         await mystic.edit_text(
             f"▶️ **Playlist Playing!**\n\n"
             f"📁 **Name:** `{pl_name}`\n"
-            f"🎵 **Queued:** `{len(songs)} tracks`\n\n"
+            f"🎵 **Queued:** `{len(valid_queue)} tracks`\n\n"
             f"💡 *Use `/plskip` to skip current song in playlist!*"
         )
     except Exception as e:
@@ -934,6 +712,14 @@ async def pl_skip_cmd(client, message: Message):
         return await message.reply_text("❌ Queue empty hai! Koyi agla song play hone ko nahi hai.")
 
     next_track = db[chat_id].pop(0)
+
+    # Sanitize & resolve next track if link is broken
+    if "watch?v=none" in str(next_track.get("link", "")) or next_track.get("vidid") == "none":
+        resolved = await get_valid_stream_details(next_track)
+        next_track["link"] = resolved["link"]
+        next_track["vidid"] = resolved["vidid"]
+        next_track["title"] = resolved["title"]
+        next_track["thumb"] = resolved["thumb"]
 
     try:
         if hasattr(Espro, "stop_stream"):
@@ -1027,7 +813,7 @@ async def playlist_text_input_handler(client, message: Message):
         title = input_text
         artist = "YouTube"
         duration = "03:00"
-        url = input_text
+        url = ""
         thumbnail = ""
 
         if youtube:
@@ -1037,15 +823,18 @@ async def playlist_text_input_handler(client, message: Message):
                     details = results[0] if isinstance(results, list) else results
                     videoid = details.get("vidid") or details.get("id")
                     title = details.get("title", input_text)
-                    artist = details.get("artist") or details.get("user") or "YouTube"
                     duration = details.get("duration_min", "03:00")
-                    thumbnail = details.get("thumb", "")
-                    url = details.get("link", f"https://www.youtube.com/watch?v={videoid}")
+                    thumbnail = details.get("thumb") or details.get("thumbnail") or ""
+                    url = details.get("link", "")
             except Exception:
                 pass
 
-        if not videoid and ("youtube.com" in input_text or "youtu.be" in input_text):
-            videoid = input_text.split("v=")[-1].split("&")[0] if "v=" in input_text else input_text.split("/")[-1]
+        if not videoid or videoid == "none":
+            videoid = "none"
+            url = input_text
+        else:
+            if not url or "watch?v=none" in url:
+                url = f"https://www.youtube.com/watch?v={videoid}"
 
         song_data = {
             "title": title,
@@ -1055,18 +844,6 @@ async def playlist_text_input_handler(client, message: Message):
             "duration": duration,
             "thumbnail": thumbnail,
         }
-
-        song_data = await resolve_playlist_song(song_data)
-        if not song_data:
-            try:
-                await searching_msg.delete()
-            except Exception:
-                pass
-            PLAYLIST_STATES[user_id] = state_data
-            return await message.reply_text(
-                "❌ **Song resolve nahi hua.**\n\n"
-                "Valid YouTube link ya song name bhejo."
-            )
 
         success, res = await db_add_song_to_playlist(user_id, playlist_id, song_data)
         playlist = await db_get_playlist(user_id, playlist_id)
