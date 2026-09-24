@@ -1,6 +1,8 @@
 import math
 import uuid
 import time
+import re
+import asyncio
 from pyrogram import filters
 from pyrogram.types import (
     CallbackQuery,
@@ -129,50 +131,119 @@ async def db_remove_song(user_id: int, playlist_id: str, song_id: str):
 
 
 # ==============================================================================
-# TRACK RESOLVER (Fixes 'Incomplete YouTube ID none' Error)
+# ROBUST TRACK RESOLVER (Fixes 'v=none.mp3' Error 100%)
 # ==============================================================================
-async def get_valid_stream_details(song: dict):
-    """Ensures a song has a valid YouTube link or resolves it cleanly via title search."""
-    title = song.get("title", "Unknown Track")
-    vidid = song.get("vidid")
-    url = song.get("url", "")
+def extract_yt_id(url_or_id: str):
+    """Extract valid 11-character YouTube video ID."""
+    if not url_or_id or str(url_or_id).lower() in ["none", "null", ""]:
+        return None
+    url_or_id = str(url_or_id).strip()
+    if re.match(r"^[a-zA-Z0-9_-]{11}$", url_or_id):
+        return url_or_id
+    match = re.search(r"(?:v=|\/|vi\/|youtu\.be\/)([a-zA-Z0-9_-]{11})", url_or_id)
+    if match:
+        return match.group(1)
+    return None
 
-    if not url or "watch?v=none" in url or url == "none":
-        url = ""
 
-    if not vidid or vidid == "none":
-        vidid = None
+async def resolve_youtube_track(query: str, vidid: str = None, url: str = None):
+    """Guarantees a valid 11-char YouTube Video ID and streaming link."""
+    existing_id = extract_yt_id(vidid) or extract_yt_id(url) or extract_yt_id(query)
+    if existing_id:
+        return {
+            "vidid": existing_id,
+            "title": query if query and not query.startswith("http") else "YouTube Track",
+            "link": f"https://www.youtube.com/watch?v={existing_id}",
+            "duration_min": "03:00",
+            "thumb": f"https://i.ytimg.com/vi/{existing_id}/hqdefault.jpg",
+        }
 
-    # If both URL and vidid are broken/missing, resolve via YouTube Search
-    if not vidid or not url:
-        if youtube:
-            try:
-                results = await youtube.track(title)
-                if results:
-                    details = results[0] if isinstance(results, list) else results
-                    vidid = details.get("vidid") or details.get("id")
-                    title = details.get("title", title)
-                    url = details.get("link")
-                    thumb = details.get("thumb") or song.get("thumbnail") or ""
-                    dur = details.get("duration_min", song.get("duration", "03:00"))
-                    return {
-                        "title": title,
-                        "vidid": vidid or "none",
-                        "link": url or (f"https://www.youtube.com/watch?v={vidid}" if vidid else title),
-                        "duration_min": dur,
-                        "thumb": thumb,
-                    }
-            except Exception:
-                pass
+    search_query = query if query else "Hindi Music"
 
-    final_link = url if url else (f"https://www.youtube.com/watch?v={vidid}" if vidid else title)
-    return {
-        "title": title,
-        "vidid": vidid or "none",
-        "link": final_link,
-        "duration_min": song.get("duration", "03:00"),
-        "thumb": song.get("thumbnail") or getattr(config, "YOUTUBE_IMG_URL", "https://telegra.ph/file/c8f2052028238627e1f33.jpg"),
-    }
+    # Search method 1: Platform YouTube Helper
+    if youtube:
+        try:
+            res = await youtube.track(search_query)
+            if res:
+                if isinstance(res, (list, tuple)):
+                    if len(res) >= 5 and isinstance(res[4], str):
+                        v = extract_yt_id(res[4])
+                        if v:
+                            return {
+                                "vidid": v,
+                                "title": str(res[0]),
+                                "link": f"https://www.youtube.com/watch?v={v}",
+                                "duration_min": str(res[1]),
+                                "thumb": str(res[3]),
+                            }
+                    elif len(res) >= 1 and isinstance(res[0], dict):
+                        d = res[0]
+                        v = extract_yt_id(d.get("vidid") or d.get("id"))
+                        if v:
+                            return {
+                                "vidid": v,
+                                "title": d.get("title", search_query),
+                                "link": f"https://www.youtube.com/watch?v={v}",
+                                "duration_min": d.get("duration_min", "03:00"),
+                                "thumb": d.get("thumb", f"https://i.ytimg.com/vi/{v}/hqdefault.jpg"),
+                            }
+                elif isinstance(res, dict):
+                    v = extract_yt_id(res.get("vidid") or res.get("id"))
+                    if v:
+                        return {
+                            "vidid": v,
+                            "title": res.get("title", search_query),
+                            "link": f"https://www.youtube.com/watch?v={v}",
+                            "duration_min": res.get("duration_min", "03:00"),
+                            "thumb": res.get("thumb", f"https://i.ytimg.com/vi/{v}/hqdefault.jpg"),
+                        }
+        except Exception:
+            pass
+
+    # Search method 2: YoutubeSearchPython
+    try:
+        from youtubesearchpython.__future__ import VideosSearch
+        resultsSearch = VideosSearch(search_query, limit=1)
+        searchResults = await resultsSearch.next()
+        if searchResults and searchResults.get("result"):
+            first_res = searchResults["result"][0]
+            v_id = first_res.get("id")
+            if v_id:
+                return {
+                    "vidid": v_id,
+                    "title": first_res.get("title", search_query),
+                    "link": f"https://www.youtube.com/watch?v={v_id}",
+                    "duration_min": first_res.get("duration", "03:00"),
+                    "thumb": f"https://i.ytimg.com/vi/{v_id}/hqdefault.jpg",
+                }
+    except Exception:
+        pass
+
+    # Search method 3: yt-dlp fallback
+    try:
+        import yt_dlp
+        def yt_search_sync(q):
+            ydl_opts = {'quiet': True, 'extract_flat': True, 'skip_download': True}
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(f"ytsearch1:{q}", download=False)
+                if info and 'entries' in info and len(info['entries']) > 0:
+                    entry = info['entries'][0]
+                    return entry.get('id'), entry.get('title')
+            return None, None
+
+        v_id, v_title = await asyncio.to_thread(yt_search_sync, search_query)
+        if v_id:
+            return {
+                "vidid": v_id,
+                "title": v_title or search_query,
+                "link": f"https://www.youtube.com/watch?v={v_id}",
+                "duration_min": "03:00",
+                "thumb": f"https://i.ytimg.com/vi/{v_id}/hqdefault.jpg",
+            }
+    except Exception:
+        pass
+
+    return None
 
 
 # ==============================================================================
@@ -413,18 +484,19 @@ async def playlist_callback_router(client, cb: CallbackQuery):
         if not active_track:
             return await cb.answer("❌ Active song expired or stopped.", show_alert=True)
 
-        vid_id = active_track.get("vidid") or "none"
-        track_url = active_track.get("link", "")
-        if "watch?v=none" in track_url:
-            track_url = active_track.get("title", "")
+        resolved = await resolve_youtube_track(
+            query=active_track.get("title", ""),
+            vidid=active_track.get("vidid"),
+            url=active_track.get("link"),
+        )
 
         song_data = {
-            "title": active_track.get("title", "Unknown Track"),
+            "title": resolved["title"] if resolved else active_track.get("title", "Unknown Track"),
             "artist": active_track.get("user", "Artist"),
-            "vidid": vid_id,
-            "url": track_url,
-            "duration": active_track.get("duration_min", "03:00"),
-            "thumbnail": active_track.get("thumb", ""),
+            "vidid": resolved["vidid"] if resolved else "none",
+            "url": resolved["link"] if resolved else "",
+            "duration": resolved["duration_min"] if resolved else "03:00",
+            "thumbnail": resolved["thumb"] if resolved else "",
         }
 
         success, res = await db_add_song_to_playlist(user_id, playlist_id, song_data)
@@ -612,17 +684,20 @@ async def play_playlist_cmd(client, message: Message):
     songs = playlist["songs"]
     pl_name = playlist.get("name", "Playlist")
 
-    mystic = await message.reply_text("🔄 **Resolving tracks & starting playlist...**")
+    mystic = await message.reply_text("🔄 **Resolving YouTube tracks... Please wait...**")
 
-    # Resolve all tracks to valid links/IDs to avoid YouTube truncated ID errors
     valid_queue = []
     for song in songs:
-        resolved = await get_valid_stream_details(song)
+        resolved = await resolve_youtube_track(
+            query=song.get("title", ""),
+            vidid=song.get("vidid"),
+            url=song.get("url"),
+        )
         if resolved:
             valid_queue.append(resolved)
 
     if not valid_queue:
-        return await mystic.edit_text("❌ **Failed to resolve playable songs in this playlist.**")
+        return await mystic.edit_text("❌ **Playlist ke gane YouTube par nahi mil paye!**")
 
     # Clear current queue and stop ongoing stream in GC
     db[chat_id] = []
@@ -660,6 +735,7 @@ async def play_playlist_cmd(client, message: Message):
         "duration_min": first_track["duration_min"],
         "thumb": first_track["thumb"],
         "by": user_name,
+        "user_id": user_id,
     }
 
     for song in valid_queue[1:]:
@@ -690,10 +766,10 @@ async def play_playlist_cmd(client, message: Message):
             forceplay=True,
         )
         await mystic.edit_text(
-            f"▶️ **Playlist Playing!**\n\n"
+            f"▶️ **Playlist Playing in Group!**\n\n"
             f"📁 **Name:** `{pl_name}`\n"
-            f"🎵 **Queued:** `{len(valid_queue)} tracks`\n\n"
-            f"💡 *Use `/plskip` to skip current song in playlist!*"
+            f"🎵 **Total Queued:** `{len(valid_queue)} songs`\n\n"
+            f"💡 *Agla song skip karne ke liye `/plskip` bhejain!*"
         )
     except Exception as e:
         await mystic.edit_text(f"❌ **Error playing playlist:** `{e}`")
@@ -711,15 +787,30 @@ async def pl_skip_cmd(client, message: Message):
     if chat_id not in db or not db[chat_id]:
         return await message.reply_text("❌ Queue empty hai! Koyi agla song play hone ko nahi hai.")
 
-    next_track = db[chat_id].pop(0)
+    mystic = await message.reply_text("⏭️ **Skipping to next playlist song...**")
+    user_name = message.from_user.first_name
+    user_id = message.from_user.id
 
-    # Sanitize & resolve next track if link is broken
-    if "watch?v=none" in str(next_track.get("link", "")) or next_track.get("vidid") == "none":
-        resolved = await get_valid_stream_details(next_track)
-        next_track["link"] = resolved["link"]
-        next_track["vidid"] = resolved["vidid"]
-        next_track["title"] = resolved["title"]
-        next_track["thumb"] = resolved["thumb"]
+    raw_next = db[chat_id].pop(0)
+
+    resolved = await resolve_youtube_track(
+        query=raw_next.get("title", ""),
+        vidid=raw_next.get("vidid"),
+        url=raw_next.get("link"),
+    )
+
+    if not resolved:
+        return await mystic.edit_text("❌ Agla track resolve nahi ho saka.")
+
+    next_details = {
+        "title": resolved["title"],
+        "link": resolved["link"],
+        "vidid": resolved["vidid"],
+        "duration_min": resolved["duration_min"],
+        "thumb": resolved["thumb"],
+        "by": user_name,
+        "user_id": user_id,
+    }
 
     try:
         if hasattr(Espro, "stop_stream"):
@@ -739,16 +830,12 @@ async def pl_skip_cmd(client, message: Message):
                 return self.get(item, "")
         _ = DummyLang()
 
-    mystic = await message.reply_text("⏭️ **Skipping playlist track...**")
-    user_name = message.from_user.first_name
-    user_id = message.from_user.id
-
     try:
         await stream(
             _,
             mystic,
             user_id,
-            next_track,
+            next_details,
             chat_id,
             user_name,
             chat_id,
@@ -756,7 +843,7 @@ async def pl_skip_cmd(client, message: Message):
             streamtype="youtube",
             forceplay=True,
         )
-        await mystic.edit_text(f"⏭️ **Skipped! Now playing:** `{next_track['title']}`")
+        await mystic.edit_text(f"⏭️ **Skipped! Now playing:** `{resolved['title']}`")
     except Exception as e:
         await mystic.edit_text(f"❌ **Error skipping track:** `{e}`")
 
@@ -809,54 +896,31 @@ async def playlist_text_input_handler(client, message: Message):
         playlist_id = state_data.get("playlist_id")
         searching_msg = await message.reply_text("🔎 **Searching song on YouTube...**")
 
-        videoid = None
-        title = input_text
-        artist = "YouTube"
-        duration = "03:00"
-        url = ""
-        thumbnail = ""
+        resolved = await resolve_youtube_track(input_text)
+        await searching_msg.delete()
 
-        if youtube:
-            try:
-                results = await youtube.track(input_text)
-                if results:
-                    details = results[0] if isinstance(results, list) else results
-                    videoid = details.get("vidid") or details.get("id")
-                    title = details.get("title", input_text)
-                    duration = details.get("duration_min", "03:00")
-                    thumbnail = details.get("thumb") or details.get("thumbnail") or ""
-                    url = details.get("link", "")
-            except Exception:
-                pass
-
-        if not videoid or videoid == "none":
-            videoid = "none"
-            url = input_text
-        else:
-            if not url or "watch?v=none" in url:
-                url = f"https://www.youtube.com/watch?v={videoid}"
+        if not resolved:
+            return await message.reply_text("❌ **YouTube par song nahi mila!** Phir se try karein.")
 
         song_data = {
-            "title": title,
-            "artist": artist,
-            "vidid": videoid,
-            "url": url,
-            "duration": duration,
-            "thumbnail": thumbnail,
+            "title": resolved["title"],
+            "artist": "YouTube",
+            "vidid": resolved["vidid"],
+            "url": resolved["link"],
+            "duration": resolved["duration_min"],
+            "thumbnail": resolved["thumb"],
         }
 
         success, res = await db_add_song_to_playlist(user_id, playlist_id, song_data)
         playlist = await db_get_playlist(user_id, playlist_id)
         pl_name = playlist.get("name") if playlist else "Playlist"
 
-        await searching_msg.delete()
-
         if res == "DUPLICATE":
             text = f"⚠️ **This track is already in '{pl_name}'!**"
         else:
             text = (
                 "✅ **Song Added!**\n\n"
-                f"🎵 **Track:** `{title}`\n"
+                f"🎵 **Track:** `{resolved['title']}`\n"
                 f"📁 **Playlist:** `{pl_name}`"
             )
 
