@@ -249,10 +249,10 @@ async def render_playlist_details_screen(user_id: int, playlist_id: str, page: i
 
 
 # ==============================================================================
-# EXPORTED HELPER FOR EXTERNAL IMPORTS (start.py / help.py Compatibility)
+# EXPORTED HELPER FOR EXTERNAL IMPORTS
 # ==============================================================================
 async def show_my_playlists_menu(client, message_or_cb):
-    """Helper function to fix ImportError for external files calling this function."""
+    """Helper function for external compatibility."""
     if isinstance(message_or_cb, Message):
         user_id = message_or_cb.from_user.id
         text, reply_markup = await render_my_playlists_screen(user_id)
@@ -504,113 +504,205 @@ async def playlist_callback_router(client, cb: CallbackQuery):
 
     elif action == "play":
         playlist_id = data[2]
-        chat_id = cb.message.chat.id
-
         playlist = await db_get_playlist(user_id, playlist_id)
         if not playlist or not playlist.get("songs"):
             return await cb.answer("❌ Playlist is empty or does not exist!", show_alert=True)
 
-        songs = playlist["songs"]
         pl_name = playlist.get("name", "Playlist")
+        cmd = f"/playplaylist {playlist_id}"
 
-        await cb.answer(f"▶️ Loading '{pl_name}' playlist...", show_alert=False)
+        text = (
+            f"▶️ **Play Playlist in Group Chat**\n\n"
+            f"📁 **Playlist:** `{pl_name}` ({len(playlist['songs'])} songs)\n\n"
+            f"👇 **Neeche diya gaya command copy karke apne Group Chat (GC) mein bhejain:**\n\n"
+            f"`{cmd}`\n\n"
+            f"✨ *Yeh command group mein daalte hi current playing song auto-skip ho jayega aur aapki playlist start ho jayegi!*"
+        )
+        buttons = [
+            [InlineKeyboardButton("⬅️ Back to Playlist", callback_data=f"playlist:view:{playlist_id}:1")],
+            [InlineKeyboardButton("❌ Close", callback_data="close_cb")]
+        ]
+        await cb.message.edit_text(text, reply_markup=InlineKeyboardMarkup(buttons))
+        await cb.answer()
 
-        db[chat_id] = []
 
-        try:
-            if hasattr(Espro, "stop_stream"):
-                await Espro.stop_stream(chat_id)
-            elif hasattr(Espro, "stop_stream_force"):
-                await Espro.stop_stream_force(chat_id)
-        except Exception:
-            pass
+# ==============================================================================
+# GROUP COMMAND: /playplaylist & /playpl
+# ==============================================================================
+@app.on_message(filters.command(["playplaylist", "playpl"]) & ~BANNED_USERS)
+async def play_playlist_cmd(client, message: Message):
+    chat_id = message.chat.id
+    user_id = message.from_user.id
 
-        try:
-            await remove_active_chat(chat_id)
-            await remove_active_video_chat(chat_id)
-        except Exception:
-            pass
-
-        try:
-            language = await get_lang(chat_id)
-            from strings import get_string
-            _ = get_string(language)
-        except Exception:
-            class DummyLang(dict):
-                def __getitem__(self, item):
-                    return self.get(item, "")
-            _ = DummyLang()
-
-        user_name = cb.from_user.first_name
-
-        first_song = songs[0]
-        v_id_0 = first_song.get("vidid")
-        title_0 = first_song.get("title", "Playlist Song")
-        url_0 = first_song.get("url") or (f"https://www.youtube.com/watch?v={v_id_0}" if v_id_0 else title_0)
-
-        default_thumb = (
-            first_song.get("thumbnail")
-            or getattr(config, "YOUTUBE_IMG_URL", "https://telegra.ph/file/c8f2052028238627e1f33.jpg")
+    if message.chat.type.name == "PRIVATE":
+        return await message.reply_text(
+            "⚠️ **This command works in Group Chats!**\n\n"
+            "Group mein jaakar ye command bhejain taaki voice chat mein playlist play ho sake."
         )
 
-        first_details = {
-            "title": title_0,
-            "link": url_0,
-            "vidid": v_id_0 or "none",
-            "duration_min": first_song.get("duration", "03:00"),
-            "thumb": default_thumb,
-            "by": user_name,
+    args = message.text.split()
+    if len(args) < 2:
+        playlists = await db_get_user_playlists(user_id)
+        if not playlists:
+            return await message.reply_text("❌ You don't have any saved playlists!")
+        
+        text = "🎶 **Your Saved Playlists:**\n\n"
+        for pl in playlists:
+            text += f"• `{pl.get('name')}` ➡️ `/playplaylist {pl.get('playlist_id')}`\n"
+        text += "\nCopy the command and send it to play in GC!"
+        return await message.reply_text(text)
+
+    playlist_id = args[1]
+    playlist = await db_get_playlist(user_id, playlist_id)
+    if not playlist or not playlist.get("songs"):
+        return await message.reply_text("❌ **Playlist not found or empty!**")
+
+    songs = playlist["songs"]
+    pl_name = playlist.get("name", "Playlist")
+
+    mystic = await message.reply_text("🔄 **Skipping current track & starting playlist...**")
+
+    # Clear current queue and stop ongoing stream in GC
+    db[chat_id] = []
+    try:
+        if hasattr(Espro, "stop_stream"):
+            await Espro.stop_stream(chat_id)
+        elif hasattr(Espro, "stop_stream_force"):
+            await Espro.stop_stream_force(chat_id)
+    except Exception:
+        pass
+
+    try:
+        await remove_active_chat(chat_id)
+        await remove_active_video_chat(chat_id)
+    except Exception:
+        pass
+
+    try:
+        language = await get_lang(chat_id)
+        from strings import get_string
+        _ = get_string(language)
+    except Exception:
+        class DummyLang(dict):
+            def __getitem__(self, item):
+                return self.get(item, "")
+        _ = DummyLang()
+
+    user_name = message.from_user.first_name
+
+    first_song = songs[0]
+    v_id_0 = first_song.get("vidid")
+    title_0 = first_song.get("title", "Playlist Song")
+    url_0 = first_song.get("url") or (f"https://www.youtube.com/watch?v={v_id_0}" if v_id_0 and v_id_0 != "none" else title_0)
+
+    default_thumb = (
+        first_song.get("thumbnail")
+        or getattr(config, "YOUTUBE_IMG_URL", "https://telegra.ph/file/c8f2052028238627e1f33.jpg")
+    )
+
+    first_details = {
+        "title": title_0,
+        "link": url_0,
+        "vidid": v_id_0 or "none",
+        "duration_min": first_song.get("duration", "03:00"),
+        "thumb": default_thumb,
+        "by": user_name,
+    }
+
+    for song in songs[1:]:
+        v_id = song.get("vidid")
+        s_title = song.get("title", "Playlist Song")
+        u_link = song.get("url") or (f"https://www.youtube.com/watch?v={v_id}" if v_id and v_id != "none" else s_title)
+        s_thumb = song.get("thumbnail") or default_thumb
+
+        d_item = {
+            "title": s_title,
+            "link": u_link,
+            "vidid": v_id or "none",
+            "duration_min": song.get("duration", "03:00"),
+            "thumb": s_thumb,
+            "user": user_name,
+            "user_id": user_id,
+            "streamtype": "youtube",
+            "file": None,
         }
+        db[chat_id].append(d_item)
 
-        for song in songs[1:]:
-            v_id = song.get("vidid")
-            s_title = song.get("title", "Playlist Song")
-            u_link = song.get("url") or (f"https://www.youtube.com/watch?v={v_id}" if v_id else s_title)
-            s_thumb = song.get("thumbnail") or default_thumb
+    try:
+        await stream(
+            _,
+            mystic,
+            user_id,
+            first_details,
+            chat_id,
+            user_name,
+            chat_id,
+            video=None,
+            streamtype="youtube",
+            forceplay=True,
+        )
+        await mystic.edit_text(
+            f"▶️ **Playlist Playing!**\n\n"
+            f"📁 **Name:** `{pl_name}`\n"
+            f"🎵 **Queued:** `{len(songs)} tracks`\n\n"
+            f"💡 *Use `/plskip` to skip current song in playlist!*"
+        )
+    except Exception as e:
+        await mystic.edit_text(f"❌ **Error playing playlist:** `{e}`")
 
-            d_item = {
-                "title": s_title,
-                "link": u_link,
-                "vidid": v_id or "none",
-                "duration_min": song.get("duration", "03:00"),
-                "thumb": s_thumb,
-                "user": user_name,
-                "user_id": user_id,
-                "streamtype": "youtube",
-                "file": None,
-            }
-            db[chat_id].append(d_item)
 
-        mystic = await cb.message.reply_text("🔄 **Starting Playlist Playback...**")
+# ==============================================================================
+# GROUP COMMAND: /plskip (Skip current playing playlist song)
+# ==============================================================================
+@app.on_message(filters.command(["plskip"]) & ~BANNED_USERS)
+async def pl_skip_cmd(client, message: Message):
+    chat_id = message.chat.id
+    if message.chat.type.name == "PRIVATE":
+        return
 
-        try:
-            await stream(
-                _,
-                mystic,
-                user_id,
-                first_details,
-                chat_id,
-                user_name,
-                chat_id,
-                video=None,
-                streamtype="youtube",
-                forceplay=True,
-            )
-            text = (
-                f"▶️ **Playlist Started!**\n\n"
-                f"📁 **Playlist:** `{pl_name}`\n"
-                f"🎵 **Added:** `{len(songs)} songs to queue`"
-            )
-            buttons = [
-                [InlineKeyboardButton("🎵 View Playlist", callback_data=f"playlist:view:{playlist_id}:1")],
-                [
-                    InlineKeyboardButton("⏭️ Skip", callback_data="skip_cb"),
-                    InlineKeyboardButton("⏹️ Stop", callback_data="stop_cb"),
-                ]
-            ]
-            await cb.message.edit_text(text, reply_markup=InlineKeyboardMarkup(buttons))
-        except Exception as e:
-            await mystic.edit_text(f"❌ **Error playing playlist:** `{e}`")
+    if chat_id not in db or not db[chat_id]:
+        return await message.reply_text("❌ Queue empty hai! Koyi agla song play hone ko nahi hai.")
+
+    next_track = db[chat_id].pop(0)
+
+    try:
+        if hasattr(Espro, "stop_stream"):
+            await Espro.stop_stream(chat_id)
+        elif hasattr(Espro, "stop_stream_force"):
+            await Espro.stop_stream_force(chat_id)
+    except Exception:
+        pass
+
+    try:
+        language = await get_lang(chat_id)
+        from strings import get_string
+        _ = get_string(language)
+    except Exception:
+        class DummyLang(dict):
+            def __getitem__(self, item):
+                return self.get(item, "")
+        _ = DummyLang()
+
+    mystic = await message.reply_text("⏭️ **Skipping playlist track...**")
+    user_name = message.from_user.first_name
+    user_id = message.from_user.id
+
+    try:
+        await stream(
+            _,
+            mystic,
+            user_id,
+            next_track,
+            chat_id,
+            user_name,
+            chat_id,
+            video=None,
+            streamtype="youtube",
+            forceplay=True,
+        )
+        await mystic.edit_text(f"⏭️ **Skipped! Now playing:** `{next_track['title']}`")
+    except Exception as e:
+        await mystic.edit_text(f"❌ **Error skipping track:** `{e}`")
 
 
 # ==============================================================================
