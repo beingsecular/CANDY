@@ -5,7 +5,7 @@ from EsproMusic import app
 from EsproMusic.misc import db
 import config
 
-# Safe import for Call instance
+# Safe import fɔ Call instance
 try:
     from EsproMusic.core.call import Espro
 except ImportError:
@@ -27,7 +27,7 @@ from EsproMusic.utils.database import (
 from EsproMusic.utils.stream.stream import stream
 from config import BANNED_USERS
 
-# Safe import for language strings
+# Safe import fɔ language strings
 try:
     from strings import get_string
 except ImportError:
@@ -40,18 +40,17 @@ except ImportError:
         def get_string(lang):
             return DummyLang()
 
-# Safe import for YouTube helper
+# Safe import fɔ YouTube helper
 try:
     from EsproMusic.platforms import YouTube
     youtube = YouTube()
 except Exception:
     youtube = None
 
-# Temporary cache for songs waiting to be saved
 PENDING_ADD_SONG = {}
 
 
-# --- PLAYLIST MENU FUNCTION ---
+# --- PLAYLIST MENU FUNCTION WIT STYLISH BUTTONS ---
 async def show_my_playlists_menu(client, message_or_cb):
     user_id = message_or_cb.from_user.id
     playlists = await get_user_playlists(user_id)
@@ -64,10 +63,17 @@ async def show_my_playlists_menu(client, message_or_cb):
                 InlineKeyboardButton("▶️ Play", callback_data=f"play_pl_cmd:{p_name}")
             ])
 
-    buttons.append([InlineKeyboardButton("➕ Create New Playlist", callback_data="ui_create_pl")])
+    buttons.append([
+        InlineKeyboardButton("✨ Create Playlist", callback_data="ui_create_pl"),
+        InlineKeyboardButton("🎵 Add Song", switch_inline_query_current_chat="/addplaylist ")
+    ])
     buttons.append([InlineKeyboardButton("◀️ Back", callback_data="open_start_menu")])
 
-    text = "🎵 **My Playlists**\n\nChoose a playlist to play or manage:"
+    text = (
+        "🎧 **─── ｢ STYLISH PLAYLIST MANAGER ｣ ───**\n\n"
+        "🎵 **Yu kin mɛnej yu yon songs ɛn playlists kebal!**\n"
+        "Select an option below or create a new playlist:"
+    )
 
     if isinstance(message_or_cb, Message):
         await message_or_cb.reply_text(text, reply_markup=InlineKeyboardMarkup(buttons))
@@ -75,27 +81,33 @@ async def show_my_playlists_menu(client, message_or_cb):
         await message_or_cb.message.edit_text(text, reply_markup=InlineKeyboardMarkup(buttons))
 
 
-# --- COMMAND: /playlist OR /myplaylist IN PRIVATE CHAT ---
+# --- COMMAND: /playlist OR /myplaylist ---
 @app.on_message(filters.command(["playlist", "myplaylist"]) & filters.private & ~BANNED_USERS)
 async def my_playlist_cmd(client, message: Message):
     await show_my_playlists_menu(client, message)
 
 
-# --- CALLBACK: CREATE NEW PLAYLIST BUTTON ---
+# --- CALLBACK: STYLISH CREATE PLAYLIST UI ---
 @app.on_callback_query(filters.regex("^ui_create_pl$"))
 async def create_playlist_ui_cb(client, CallbackQuery: CallbackQuery):
     text = (
-        "➕ **Create New Playlist**\n\n"
-        "Nayi playlist banane ke liye neeche diya gaya command bhejien:\n\n"
-        "👉 `/createplaylist <playlist_name>`\n\n"
-        "**Example:**\n"
-        "`/createplaylist krish`\n\n"
-        "Playlist banne ke baad songs add karne ke liye:\n"
-        "👉 `/addplaylist <playlist_name> <song name or youtube link>`\n\n"
-        "**Example:**\n"
-        "`/addplaylist krish Kesariya`"
+        "✨ **─── ｢ CREATE NEW PLAYLIST ｣ ───** ✨\n\n"
+        "👉 **Tap di button dem na bɔtɔm fɔ quick setup:**\n\n"
+        "1️⃣ **Create Playlist Command:**\n"
+        "`/createplaylist <playlist_name>`\n"
+        "_(Example: `/createplaylist my_favorite`)_\n\n"
+        "2️⃣ **Add Songs Command:**\n"
+        "`/addplaylist <playlist_name> <song_name>`\n"
+        "_(Example: `/addplaylist my_favorite Kesariya`)_\n"
     )
-    buttons = [[InlineKeyboardButton("◀️ Back", callback_data="back_to_pl_menu")]]
+    
+    buttons = [
+        [
+            InlineKeyboardButton("➕ Create Command", switch_inline_query_current_chat="/createplaylist "),
+            InlineKeyboardButton("🎵 Add Song Command", switch_inline_query_current_chat="/addplaylist ")
+        ],
+        [InlineKeyboardButton("◀️ Back to Playlists", callback_data="back_to_pl_menu")]
+    ]
     await CallbackQuery.message.edit_text(text, reply_markup=InlineKeyboardMarkup(buttons))
 
 
@@ -115,20 +127,23 @@ async def create_playlist_cmd(client, message: Message):
     if playlists and playlist_name in playlists:
         return await message.reply_text(f"❌ Playlist **{playlist_name}** pehle se exist karti hai!")
 
-    # Standard database save with initial placeholder
     try:
         await create_playlist(user_id, playlist_name)
     except Exception:
         pass
 
-    # Fallback to ensure key exists in user playlists
     await add_song_to_playlist(user_id, playlist_name, "Welcome Track", "dQw4w9WgXcQ")
     await remove_song_from_playlist(user_id, playlist_name, "dQw4w9WgXcQ")
 
+    buttons = [
+        [InlineKeyboardButton("🎵 Add Song Now", switch_inline_query_current_chat=f"/addplaylist {playlist_name} ")],
+        [InlineKeyboardButton("📁 View My Playlists", callback_data="back_to_pl_menu")]
+    ]
+
     await message.reply_text(
-        f"✅ **Playlist '{playlist_name}' successfully ban gayi hai!**\n\n"
-        f"Isme songs add karne ke liye type karein:\n"
-        f"`/addplaylist {playlist_name} <song name or YouTube URL>`"
+        f"✅ **Playlist '{playlist_name}' created successfully!**\n\n"
+        f"Tap **'Add Song Now'** button below to add songs easily!",
+        reply_markup=InlineKeyboardMarkup(buttons)
     )
 
 
@@ -168,12 +183,19 @@ async def add_to_playlist_cmd(client, message: Message):
             videoid = "dQw4w9WgXcQ"
 
     res = await add_song_to_playlist(user_id, playlist_name, title, videoid)
+    
+    buttons = [
+        [InlineKeyboardButton("➕ Add Another Song", switch_inline_query_current_chat=f"/addplaylist {playlist_name} ")],
+        [InlineKeyboardButton("▶️ Play in Group", switch_inline_query_current_chat=f"/playplaylist {playlist_name}")]
+    ]
+
     if res == "duplicate":
-        await mystic.edit_text(f"⚠️ **Yeh song pehle se '{playlist_name}' playlist me hai!**")
+        await mystic.edit_text(f"⚠️ **This song is already in '{playlist_name}'!**", reply_markup=InlineKeyboardMarkup(buttons))
     else:
         await mystic.edit_text(
-            f"✅ **Song added to '{playlist_name}'!**\n\n"
-            f"🎵 **Title:** `{title}`"
+            f"✅ **Added to '{playlist_name}'!**\n\n"
+            f"🎵 **Title:** `{title}`",
+            reply_markup=InlineKeyboardMarkup(buttons)
         )
 
 
@@ -183,12 +205,16 @@ async def play_playlist_button_cb(client, CallbackQuery: CallbackQuery):
     playlist_name = CallbackQuery.data.split("play_pl_cmd:")[1]
     cmd_text = f"/playplaylist {playlist_name}"
 
+    buttons = [
+        [InlineKeyboardButton("▶️ Play in GC", switch_inline_query_current_chat=cmd_text)]
+    ]
+
     await CallbackQuery.answer("Command generated!", show_alert=False)
     await CallbackQuery.message.reply_text(
         f"🎵 **Play Playlist in Group Chat**\n\n"
-        f"Copy the command below and paste it in your **Group Chat (GC)**:\n\n"
-        f"<code>{cmd_text}</code>\n\n"
-        f"⚡ *Sending this command in your group will stop the current track and start playing your playlist.*"
+        f"Copy or tap the button below to paste in your **Group Chat**:\n\n"
+        f"<code>{cmd_text}</code>",
+        reply_markup=InlineKeyboardMarkup(buttons)
     )
 
 
@@ -209,6 +235,7 @@ async def view_playlist_cb(client, CallbackQuery: CallbackQuery):
             text += f"{idx}. {song.get('title')}\n"
 
     buttons = [
+        [InlineKeyboardButton("➕ Add More Song", switch_inline_query_current_chat=f"/addplaylist {playlist_name} ")],
         [InlineKeyboardButton("🗑️ Delete Playlist", callback_data=f"delete_pl:{playlist_name}")],
         [InlineKeyboardButton("◀️ Back", callback_data="back_to_pl_menu")]
     ]
@@ -262,7 +289,6 @@ async def play_user_playlist_in_gc(client, message: Message):
 
     mystic = await message.reply_text("🔄 **Skipping current song & starting playlist...**")
 
-    # Load Language dictionary
     try:
         language = await get_lang(chat_id)
         _ = get_string(language)
@@ -272,10 +298,8 @@ async def play_user_playlist_in_gc(client, message: Message):
                 return self.get(item, "")
         _ = DummyLang()
 
-    # 1. Clear old queue
     db[chat_id] = []
 
-    # 2. Stop ongoing stream & reset active state
     try:
         if hasattr(Espro, "stop_stream"):
             await Espro.stop_stream(chat_id)
@@ -292,7 +316,6 @@ async def play_user_playlist_in_gc(client, message: Message):
 
     user_name = message.from_user.first_name
 
-    # 3. Process first song safely
     first_song = songs[0]
     videoid_0 = first_song.get("videoid")
     title_0 = first_song.get("title", "Playlist Song")
@@ -324,7 +347,6 @@ async def play_user_playlist_in_gc(client, message: Message):
         if "thumb" not in first_details or not first_details["thumb"]:
             first_details["thumb"] = default_thumb
 
-    # 4. Add remaining playlist songs to background queue (`db[chat_id]`)
     for song in songs[1:]:
         v_id = song.get("videoid")
         s_title = song.get("title", "Playlist Song")
@@ -344,7 +366,6 @@ async def play_user_playlist_in_gc(client, message: Message):
         }
         db[chat_id].append(d_item)
 
-    # 5. Play first song immediately
     try:
         await stream(
             _,
