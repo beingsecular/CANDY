@@ -131,7 +131,7 @@ async def db_remove_song(user_id: int, playlist_id: str, song_id: str):
 
 
 # ==============================================================================
-# ROBUST TRACK RESOLVER (Fixes 'v=none.mp3' Error 100%)
+# ROBUST TRACK RESOLVER
 # ==============================================================================
 def extract_yt_id(url_or_id: str):
     """Extract valid 11-character YouTube video ID."""
@@ -316,7 +316,6 @@ async def render_playlist_details_screen(user_id: int, playlist_id: str, page: i
         ]
         return text, InlineKeyboardMarkup(buttons)
 
-    # Pagination calculation (5 songs per page)
     per_page = 5
     total_pages = math.ceil(total_songs / per_page)
     page = max(1, min(page, total_pages))
@@ -640,7 +639,7 @@ async def playlist_callback_router(client, cb: CallbackQuery):
             f"📁 **Playlist:** `{pl_name}` ({len(playlist['songs'])} songs)\n\n"
             f"👇 **Neeche diya gaya command copy karke apne Group Chat (GC) mein bhejain:**\n\n"
             f"`{cmd}`\n\n"
-            f"✨ *Yeh command group mein daalte hi current playing song auto-skip ho jayega aur aapki playlist start ho jayegi!*"
+            f"✨ *Yeh command group mein daalte hi playlist start ho jayegi!*"
         )
         buttons = [
             [InlineKeyboardButton("⬅️ Back to Playlist", callback_data=f"playlist:view:{playlist_id}:1")],
@@ -715,6 +714,8 @@ async def play_playlist_cmd(client, message: Message):
     except Exception:
         pass
 
+    await asyncio.sleep(1)
+
     try:
         language = await get_lang(chat_id)
         from strings import get_string
@@ -776,16 +777,16 @@ async def play_playlist_cmd(client, message: Message):
 
 
 # ==============================================================================
-# GROUP COMMAND: /plskip (Skip current playing playlist song)
+# GROUP COMMAND: /plskip (Fix Instant Skip for Playlist)
 # ==============================================================================
 @app.on_message(filters.command(["plskip"]) & ~BANNED_USERS)
 async def pl_skip_cmd(client, message: Message):
     chat_id = message.chat.id
     if message.chat.type.name == "PRIVATE":
-        return
+        return await message.reply_text("⚠️ **This command works in Group Chats!**")
 
     if chat_id not in db or not db[chat_id]:
-        return await message.reply_text("❌ Queue empty hai! Koyi agla song play hone ko nahi hai.")
+        return await message.reply_text("❌ **Playlist queue is empty!** Koyi agla song play hone ko nahi hai.")
 
     mystic = await message.reply_text("⏭️ **Skipping to next playlist song...**")
     user_name = message.from_user.first_name
@@ -796,11 +797,11 @@ async def pl_skip_cmd(client, message: Message):
     resolved = await resolve_youtube_track(
         query=raw_next.get("title", ""),
         vidid=raw_next.get("vidid"),
-        url=raw_next.get("link"),
+        url=raw_next.get("link") or raw_next.get("url"),
     )
 
     if not resolved:
-        return await mystic.edit_text("❌ Agla track resolve nahi ho saka.")
+        return await mystic.edit_text("❌ Agla track resolve nahi ho saka. Koshish jari hai...")
 
     next_details = {
         "title": resolved["title"],
@@ -812,6 +813,7 @@ async def pl_skip_cmd(client, message: Message):
         "user_id": user_id,
     }
 
+    # CRITICAL FIX: Stop current call stream & clear active status so stream() plays immediately!
     try:
         if hasattr(Espro, "stop_stream"):
             await Espro.stop_stream(chat_id)
@@ -819,6 +821,14 @@ async def pl_skip_cmd(client, message: Message):
             await Espro.stop_stream_force(chat_id)
     except Exception:
         pass
+
+    try:
+        await remove_active_chat(chat_id)
+        await remove_active_video_chat(chat_id)
+    except Exception:
+        pass
+
+    await asyncio.sleep(1)
 
     try:
         language = await get_lang(chat_id)
