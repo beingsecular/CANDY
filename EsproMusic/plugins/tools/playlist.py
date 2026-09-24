@@ -35,11 +35,20 @@ from EsproMusic.utils.stream.queue import put_queue  # NEW: proper queue format
 from config import BANNED_USERS
 
 # Safe import for YouTube search helper
+youtube = None
 try:
-    from EsproMusic.platforms import YouTube
-    youtube = YouTube()
+    # Most forks: YouTube instance already created in EsproMusic/__init__.py
+    from EsproMusic import YouTube as youtube
 except Exception:
-    youtube = None
+    try:
+        from EsproMusic.platforms import YouTube as _YT
+        youtube = _YT() if isinstance(_YT, type) else _YT
+    except Exception:
+        try:
+            from EsproMusic.platforms import YouTubeAPI as _YT
+            youtube = _YT() if isinstance(_YT, type) else _YT
+        except Exception:
+            youtube = None
 
 
 # ==============================================================================
@@ -804,6 +813,10 @@ async def pl_skip_cmd(client, message: Message):
 
     try:
         if isinstance(queued, str) and "vid_" in queued:
+            if youtube is None:
+                return await mystic.edit_text(
+                    "❌ YouTube helper load nahi hua. `from EsproMusic import YouTube` check karo."
+                )
             file_path, direct = await youtube.download(
                 videoid, mystic, videoid=True, video=False
             )
