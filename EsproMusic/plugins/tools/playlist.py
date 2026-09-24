@@ -200,7 +200,7 @@ async def play_user_playlist_in_gc(client, message: Message):
     # 1. Clear old queue
     db[chat_id] = []
 
-    # 2. Stop ongoing stream & reset active state so old song skips immediately
+    # 2. Stop ongoing stream & reset active state
     try:
         if hasattr(Espro, "stop_stream"):
             await Espro.stop_stream(chat_id)
@@ -217,13 +217,14 @@ async def play_user_playlist_in_gc(client, message: Message):
 
     user_name = message.from_user.first_name
 
-    # 3. Stream 1st song of playlist immediately (forceplay)
+    # 3. Process first song safely
     first_song = songs[0]
     videoid_0 = first_song.get("videoid")
-    url_0 = f"https://www.youtube.com/watch?v={videoid_0}"
+    title_0 = first_song.get("title", "Playlist Song")
+    url_0 = f"https://www.youtube.com/watch?v={videoid_0}" if videoid_0 else title_0
 
     first_details = None
-    if youtube:
+    if youtube and videoid_0:
         try:
             first_details, _id = await youtube.track(videoid_0, True)
         except Exception:
@@ -231,12 +232,31 @@ async def play_user_playlist_in_gc(client, message: Message):
 
     if not first_details:
         first_details = {
-            "title": first_song.get("title", "Telegram Playlist Song"),
+            "title": title_0,
             "link": url_0,
-            "vidid": videoid_0,
-            "duration_min": "00:00",
+            "vidid": videoid_0 or "none",
+            "duration_min": "03:00",
         }
 
+    # 4. Add remaining playlist songs to background queue (`db[chat_id]`)
+    for song in songs[1:]:
+        v_id = song.get("videoid")
+        s_title = song.get("title", "Playlist Song")
+        u_link = f"https://www.youtube.com/watch?v={v_id}" if v_id else s_title
+
+        d_item = {
+            "title": s_title,
+            "link": u_link,
+            "vidid": v_id or "none",
+            "duration_min": "03:00",
+            "user": user_name,
+            "user_id": user_id,
+            "streamtype": "youtube",
+            "file": None,
+        }
+        db[chat_id].append(d_item)
+
+    # 5. Play first song
     try:
         await stream(
             _,
@@ -247,44 +267,12 @@ async def play_user_playlist_in_gc(client, message: Message):
             user_name,
             message.chat.id,
             video=None,
-            streamtype="playlist",
+            streamtype="youtube",
             forceplay=True,
         )
     except Exception as e:
         print(f"Error streaming first song: {e}")
-
-    # 4. Add remaining playlist songs to background queue (`db[chat_id]`)
-    if chat_id not in db:
-        db[chat_id] = []
-
-    for song in songs[1:]:
-        v_id = song.get("videoid")
-        if not v_id:
-            continue
-
-        u_link = f"https://www.youtube.com/watch?v={v_id}"
-        s_title = song.get("title", "Telegram Playlist Song")
-
-        d_item = {
-            "title": s_title,
-            "link": u_link,
-            "vidid": v_id,
-            "duration_min": "00:00",
-            "user": user_name,
-            "user_id": user_id,
-            "streamtype": "youtube",
-            "file": None,
-        }
-
-        if youtube:
-            try:
-                yt_details, _id = await youtube.track(v_id, True)
-                if yt_details:
-                    d_item.update({
-                        "title": yt_details.get("title", s_title),
-                        "duration_min": yt_details.get("duration_min", "00:00"),
-                    })
-            except Exception:
-                pass
-
-        db[chat_id].append(d_item)
+        await mystic.edit_text(
+            "❌ **Failed to fetch track from YouTube.**\n"
+            "Please update `yt-dlp` or add `cookies.txt` on your VPS."
+        )
