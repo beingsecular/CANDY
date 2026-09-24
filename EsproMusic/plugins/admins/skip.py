@@ -1,3 +1,4 @@
+import os
 from pyrogram import filters
 from pyrogram.types import InlineKeyboardMarkup, Message
 
@@ -11,6 +12,9 @@ from EsproMusic.utils.inline import close_markup, stream_markup
 from EsproMusic.utils.stream.autoclear import auto_clean
 from EsproMusic.utils.thumbnails import get_thumb
 from config import BANNED_USERS
+
+# Ensure downloads folder exists
+os.makedirs("downloads", exist_ok=True)
 
 
 @app.on_message(
@@ -51,11 +55,9 @@ async def skip(cli, message: Message, _, chat_id):
         else:
             return await message.reply_text(_["admin_9"])
 
-    # Normal /skip command
     check = db.get(chat_id)
 
     if not check or len(check) == 0:
-        # No more songs in queue
         try:
             from EsproMusic.plugins.tools.autoplay import try_autoplay
             if await try_autoplay(chat_id, None):
@@ -76,7 +78,7 @@ async def skip(cli, message: Message, _, chat_id):
         except Exception:
             return
 
-    # Pop the NEXT song to play directly from global DB queue
+    # Pop the NEXT song to play
     next_song = db[chat_id].pop(0)
     await auto_clean(next_song)
 
@@ -87,7 +89,7 @@ async def skip(cli, message: Message, _, chat_id):
     videoid = next_song.get("vidid", "")
     status = True if str(streamtype) == "video" else None
 
-    # Reset duration/played status for new song if items remaining in queue
+    # Reset duration/played status
     if chat_id in db and len(db[chat_id]) > 0:
         db[chat_id][0]["played"] = 0
         exis = next_song.get("old_dur")
@@ -128,6 +130,8 @@ async def skip(cli, message: Message, _, chat_id):
 
     elif "vid_" in queued or queued.startswith("vid_"):
         mystic = await message.reply_text(_["call_7"], disable_web_page_preview=True)
+        
+        file_path = None
         try:
             file_path, direct = await YouTube.download(
                 videoid,
@@ -137,6 +141,13 @@ async def skip(cli, message: Message, _, chat_id):
             )
         except Exception as e:
             return await mystic.edit_text(f"❌ **Download failed:** `{e}`")
+
+        # Check if downloaded file actually exists
+        if not file_path or not os.path.exists(file_path):
+            return await mystic.edit_text(
+                f"❌ **Audio file download nahi ho payi.**\n\n"
+                f"💡 Terminal par `pip install -U yt-dlp` run karke bot restart karein."
+            )
 
         try:
             image = await YouTube.thumbnail(videoid, True)
@@ -181,9 +192,12 @@ async def skip(cli, message: Message, _, chat_id):
             db[chat_id][0]["markup"] = "tg"
 
     else:
-        if videoid in ["telegram", "soundcloud"]:
-            image = None
-        else:
+        # Check direct local file path if given
+        if queued and not queued.startswith("http") and not os.path.exists(queued) and videoid not in ["telegram", "soundcloud"]:
+            return await message.reply_text("❌ **Track file lost on server. Skipping to next...**")
+
+        image = None
+        if videoid not in ["telegram", "soundcloud"]:
             try:
                 image = await YouTube.thumbnail(videoid, True)
             except Exception:
@@ -196,22 +210,14 @@ async def skip(cli, message: Message, _, chat_id):
         button = stream_markup(_, chat_id)
         if videoid == "telegram":
             run = await message.reply_photo(
-                photo=config.TELEGRAM_AUDIO_URL
-                if str(streamtype) == "audio"
-                else config.TELEGRAM_VIDEO_URL,
-                caption=_["stream_1"].format(
-                    config.SUPPORT_CHAT, title[:23], next_song.get("dur", "03:00"), user
-                ),
+                photo=config.TELEGRAM_AUDIO_URL if str(streamtype) == "audio" else config.TELEGRAM_VIDEO_URL,
+                caption=_["stream_1"].format(config.SUPPORT_CHAT, title[:23], next_song.get("dur", "03:00"), user),
                 reply_markup=InlineKeyboardMarkup(button),
             )
         elif videoid == "soundcloud":
             run = await message.reply_photo(
-                photo=config.SOUNCLOUD_IMG_URL
-                if str(streamtype) == "audio"
-                else config.TELEGRAM_VIDEO_URL,
-                caption=_["stream_1"].format(
-                    config.SUPPORT_CHAT, title[:23], next_song.get("dur", "03:00"), user
-                ),
+                photo=config.SOUNCLOUD_IMG_URL if str(streamtype) == "audio" else config.TELEGRAM_VIDEO_URL,
+                caption=_["stream_1"].format(config.SUPPORT_CHAT, title[:23], next_song.get("dur", "03:00"), user),
                 reply_markup=InlineKeyboardMarkup(button),
             )
         else:
