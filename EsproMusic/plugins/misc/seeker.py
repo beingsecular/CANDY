@@ -1,24 +1,40 @@
 import asyncio
-
 from EsproMusic.misc import db
-from EsproMusic.utils.database import get_active_chats, is_Music_playing
-
 
 async def timer():
-    while not await asyncio.sleep(1):
-        active_chats = await get_active_chats()
-        for chat_id in active_chats:
-            if not await is_Music_playing(chat_id):
-                continue
-            playing = db.get(chat_id)
-            if not playing:
-                continue
-            duration = int(playing[0]["seconds"])
-            if duration == 0:
-                continue
-            if db[chat_id][0]["played"] >= duration:
-                continue
-            db[chat_id][0]["played"] += 1
-
-
-asyncio.create_task(timer())
+    while True:
+        await asyncio.sleep(2)
+        try:
+            chats = list(db.keys())
+            for chat_id in chats:
+                try:
+                    if not db.get(chat_id):
+                        continue
+                    playing = db[chat_id]
+                    if not playing or len(playing) == 0:
+                        continue
+                    
+                    # Safe check for 'seconds' key to prevent KeyError
+                    seconds = playing[0].get("seconds")
+                    if not seconds:
+                        dur_str = playing[0].get("dur", "03:00")
+                        try:
+                            parts = list(map(int, dur_str.split(":")))
+                            if len(parts) == 2:
+                                seconds = parts[0] * 60 + parts[1]
+                            elif len(parts) == 3:
+                                seconds = parts[0] * 3600 + parts[1] * 60 + parts[2]
+                            else:
+                                seconds = 180
+                        except Exception:
+                            seconds = 180
+                    
+                    duration = int(seconds)
+                    
+                    if "played" not in playing[0]:
+                        playing[0]["played"] = 0
+                        
+                except Exception:
+                    pass
+        except Exception:
+            await asyncio.sleep(3)
