@@ -31,6 +31,7 @@ from EsproMusic.utils.database import (
     remove_active_video_chat,
 )
 from EsproMusic.utils.stream.stream import stream
+from EsproMusic.utils.stream.queue import put_queue  # NEW: proper queue format
 from config import BANNED_USERS
 
 # Safe import for YouTube search helper
@@ -651,7 +652,7 @@ async def play_playlist_cmd(client, message: Message):
         playlists = await db_get_user_playlists(user_id)
         if not playlists:
             return await message.reply_text("❌ You don't have any saved playlists!")
-        
+
         text = "🎶 **Your Saved Playlists:**\n\n"
         for pl in playlists:
             text += f"• `{pl.get('name')}` ➡️ `/playplaylist {pl.get('playlist_id')}`\n"
@@ -711,37 +712,17 @@ async def play_playlist_cmd(client, message: Message):
 
     user_name = message.from_user.first_name
 
-    first_track = valid_queue[0]
+    first = valid_queue[0]
     first_details = {
-        "title": first_track["title"],
-        "link": first_track["link"],
-        "vidid": first_track["vidid"],
-        "duration_min": first_track["duration_min"],
-        "thumb": first_track["thumb"],
-        "by": user_name,
-        "user": user_name,
-        "user_id": user_id,
-        "streamtype": "youtube",
-        "file": None,
+        "title": first["title"],
+        "link": first["link"],
+        "vidid": first["vidid"],
+        "duration_min": first["duration_min"],
+        "thumb": first["thumb"],
     }
 
-    # Format remaining tracks into bot queue structure
-    for song in valid_queue[1:]:
-        d_item = {
-            "title": song["title"],
-            "link": song["link"],
-            "vidid": song["vidid"],
-            "duration_min": song["duration_min"],
-            "thumb": song["thumb"],
-            "by": user_name,
-            "user": user_name,
-            "user_id": user_id,
-            "streamtype": "youtube",
-            "file": None,
-        }
-        db[chat_id].append(d_item)
-
     try:
+        # 1) Pehla song stream() se (db khaali hai, to ye index 0 banega)
         await stream(
             _,
             mystic,
@@ -754,14 +735,29 @@ async def play_playlist_cmd(client, message: Message):
             streamtype="youtube",
             forceplay=True,
         )
-        await mystic.edit_text(
-            f"▶️ **Playlist Playing in Group!**\n\n"
-            f"📁 **Name:** `{pl_name}`\n"
-            f"🎵 **Total Queued:** `{len(valid_queue)} songs`\n\n"
-            f"💡 *Agla song skip karne ke liye `/plskip` bhejain!*"
-        )
+
+        # 2) Baaki songs bot ki proper queue format mein
+        for song in valid_queue[1:]:
+            await put_queue(
+                chat_id,
+                chat_id,
+                f"vid_{song['vidid']}",
+                song["title"],
+                song["duration_min"],
+                user_name,
+                song["vidid"],
+                user_id,
+                "audio",
+            )
     except Exception as e:
-        await mystic.edit_text(f"❌ **Error playing playlist:** `{e}`")
+        return await message.reply_text(f"❌ **Error playing playlist:** `{e}`")
+
+    await message.reply_text(
+        f"▶️ **Playlist Playing in Group!**\n\n"
+        f"📁 **Name:** `{pl_name}`\n"
+        f"🎵 **Total Queued:** `{len(valid_queue)} songs`\n\n"
+        f"💡 *Agla song skip karne ke liye `/plskip` bhejain!*"
+    )
 
 
 # ==============================================================================
@@ -773,78 +769,50 @@ async def pl_skip_cmd(client, message: Message):
     if message.chat.type.name == "PRIVATE":
         return await message.reply_text("⚠️ **This command works in Group Chats!**")
 
-    if chat_id not in db or not db[chat_id]:
-        return await message.reply_text("❌ **Playlist queue empty hai!** Koyi agla song queue mein nahi hai.")
+    check = db.get(chat_id)
+    if not check:
+        return await message.reply_text("❌ **Koi song play nahi ho raha!**")
+
+    # Current song hatao
+    try:
+        check.pop(0)
+    except Exception:
+        pass
+
+    # Queue khatam
+    if not check:
+        try:
+            if hasattr(Espro, "stop_stream"):
+                await Espro.stop_stream(chat_id)
+            elif hasattr(Espro, "stop_stream_force"):
+                await Espro.stop_stream_force(chat_id)
+        except Exception:
+            pass
+        try:
+            await remove_active_chat(chat_id)
+            await remove_active_video_chat(chat_id)
+        except Exception:
+            pass
+        return await message.reply_text("✅ **Playlist khatam ho gayi!**")
 
     mystic = await message.reply_text("⏭️ **Skipping to next playlist song...**")
-    user_name = message.from_user.first_name
-    user_id = message.from_user.id
 
-    raw_next = db[chat_id].pop(0)
-
-    resolved = await resolve_youtube_track(
-        query=raw_next.get("title", ""),
-        vidid=raw_next.get("vidid"),
-        url=raw_next.get("link") or raw_next.get("url"),
-    )
-
-    if not resolved:
-        return await mystic.edit_text("❌ Agla track resolve nahi ho saka.")
-
-    next_details = {
-        "title": resolved["title"],
-        "link": resolved["link"],
-        "vidid": resolved["vidid"],
-        "duration_min": resolved["duration_min"],
-        "thumb": resolved["thumb"],
-        "by": user_name,
-        "user": user_name,
-        "user_id": user_id,
-        "streamtype": "youtube",
-        "file": None,
-    }
-
-    # Reset active PyTgCalls stream before playing next song
-    try:
-        if hasattr(Espro, "stop_stream"):
-            await Espro.stop_stream(chat_id)
-        elif hasattr(Espro, "stop_stream_force"):
-            await Espro.stop_stream_force(chat_id)
-    except Exception:
-        pass
+    nxt = check[0]
+    queued = nxt.get("file", "")
+    videoid = nxt.get("vidid")
+    title = nxt.get("title", "Track")
 
     try:
-        await remove_active_chat(chat_id)
-        await remove_active_video_chat(chat_id)
-    except Exception:
-        pass
+        if isinstance(queued, str) and "vid_" in queued:
+            file_path, direct = await youtube.download(
+                videoid, mystic, videoid=True, video=False
+            )
+        else:
+            file_path = queued
 
-    await asyncio.sleep(1.5)
-
-    try:
-        language = await get_lang(chat_id)
-        from strings import get_string
-        _ = get_string(language)
-    except Exception:
-        class DummyLang(dict):
-            def __getitem__(self, item):
-                return self.get(item, "")
-        _ = DummyLang()
-
-    try:
-        await stream(
-            _,
-            mystic,
-            user_id,
-            next_details,
-            chat_id,
-            user_name,
-            chat_id,
-            video=None,
-            streamtype="youtube",
-            forceplay=True,
-        )
-        await mystic.edit_text(f"⏭️ **Skipped! Now playing:** `{resolved['title']}`")
+        await Espro.skip_stream(chat_id, file_path, video=False, image=None)
+        nxt["played"] = 0
+        await mystic.edit_text(f"⏭️ **Skipped! Now playing:** `{title}`")
     except Exception as e:
         await mystic.edit_text(f"❌ **Error skipping track:** `{e}`")
 
