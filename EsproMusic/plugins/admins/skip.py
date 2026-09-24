@@ -13,7 +13,6 @@ from EsproMusic.utils.stream.autoclear import auto_clean
 from EsproMusic.utils.thumbnails import get_thumb
 from config import BANNED_USERS
 
-# Ensure downloads folder exists
 os.makedirs("downloads", exist_ok=True)
 
 
@@ -78,7 +77,7 @@ async def skip(cli, message: Message, _, chat_id):
         except Exception:
             return
 
-    # Pop the NEXT song to play
+    # Pop NEXT song
     next_song = db[chat_id].pop(0)
     await auto_clean(next_song)
 
@@ -89,7 +88,7 @@ async def skip(cli, message: Message, _, chat_id):
     videoid = next_song.get("vidid", "")
     status = True if str(streamtype) == "video" else None
 
-    # Reset duration/played status
+    # Reset duration/played status for new track
     if chat_id in db and len(db[chat_id]) > 0:
         db[chat_id][0]["played"] = 0
         exis = next_song.get("old_dur")
@@ -99,6 +98,7 @@ async def skip(cli, message: Message, _, chat_id):
             db[chat_id][0]["speed_path"] = None
             db[chat_id][0]["speed"] = 1.0
 
+    # 1. LIVE STREAMS
     if "live_" in queued:
         n, link = await YouTube.video(videoid, True)
         if n == 0:
@@ -128,26 +128,42 @@ async def skip(cli, message: Message, _, chat_id):
             db[chat_id][0]["mystic"] = run
             db[chat_id][0]["markup"] = "tg"
 
-    elif "vid_" in queued or queued.startswith("vid_"):
-        mystic = await message.reply_text(_["call_7"], disable_web_page_preview=True)
-        
-        file_path = None
+    # 2. INDEX STREAMS
+    elif "index_" in queued:
         try:
-            file_path, direct = await YouTube.download(
-                videoid,
-                mystic,
-                videoid=True,
-                video=status,
-            )
+            await Ritik.skip_stream(chat_id, videoid, video=status)
         except Exception as e:
-            return await mystic.edit_text(f"❌ **Download failed:** `{e}`")
+            return await message.reply_text(f"❌ **Skip failed:** `{e}`")
+        button = stream_markup(_, chat_id)
+        run = await message.reply_photo(
+            photo=config.STREAM_IMG_URL,
+            caption=_["stream_2"].format(user),
+            reply_markup=InlineKeyboardMarkup(button),
+        )
+        if chat_id in db and len(db[chat_id]) > 0:
+            db[chat_id][0]["mystic"] = run
+            db[chat_id][0]["markup"] = "tg"
 
-        # Check if downloaded file actually exists
+    # 3. YOUTUBE TRACKS (HANDLES BOTH PLAYLIST AND DIRECT PLAY)
+    elif videoid and videoid not in ["telegram", "soundcloud"]:
+        mystic = await message.reply_text(_["call_7"], disable_web_page_preview=True)
+
+        # Check if local file exists; if not, re-download automatically
+        file_path = queued if (queued and os.path.exists(queued)) else None
+
+        if not file_path:
+            try:
+                file_path, direct = await YouTube.download(
+                    videoid,
+                    mystic,
+                    videoid=True,
+                    video=status,
+                )
+            except Exception as e:
+                return await mystic.edit_text(f"❌ **Download failed:** `{e}`")
+
         if not file_path or not os.path.exists(file_path):
-            return await mystic.edit_text(
-                f"❌ **Audio file download nahi ho payi.**\n\n"
-                f"💡 Terminal par `pip install -U yt-dlp` run karke bot restart karein."
-            )
+            return await mystic.edit_text("❌ **Audio file download nahi ho payi.**")
 
         try:
             image = await YouTube.thumbnail(videoid, True)
@@ -176,23 +192,8 @@ async def skip(cli, message: Message, _, chat_id):
             db[chat_id][0]["markup"] = "stream"
         await mystic.delete()
 
-    elif "index_" in queued:
-        try:
-            await Ritik.skip_stream(chat_id, videoid, video=status)
-        except Exception as e:
-            return await message.reply_text(f"❌ **Skip failed:** `{e}`")
-        button = stream_markup(_, chat_id)
-        run = await message.reply_photo(
-            photo=config.STREAM_IMG_URL,
-            caption=_["stream_2"].format(user),
-            reply_markup=InlineKeyboardMarkup(button),
-        )
-        if chat_id in db and len(db[chat_id]) > 0:
-            db[chat_id][0]["mystic"] = run
-            db[chat_id][0]["markup"] = "tg"
-
+    # 4. TELEGRAM / SOUNDCLOUD / FALLBACK
     else:
-        # Check direct local file path if given
         if queued and not queued.startswith("http") and not os.path.exists(queued) and videoid not in ["telegram", "soundcloud"]:
             return await message.reply_text("❌ **Track file lost on server. Skipping to next...**")
 
