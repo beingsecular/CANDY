@@ -129,9 +129,8 @@ async def db_remove_song(user_id: int, playlist_id: str, song_id: str):
 
 
 # ==============================================================================
-# STATE MANAGEMENT (Per-User Text Input Handler)
+# STATE MANAGEMENT
 # ==============================================================================
-# Format: { user_id: { "state": "WAITING_PLAYLIST_NAME" | "WAITING_PLAYLIST_SONG", "playlist_id": str, "chat_id": int, "msg_id": int } }
 PLAYLIST_STATES = {}
 
 
@@ -222,12 +221,10 @@ async def render_playlist_details_screen(user_id: int, playlist_id: str, page: i
         s_id = song.get("song_id")
         text += f"{idx}. 🎵 **{s_title}** — _{s_artist}_\n"
         
-        # Single row button for quick inspection/deletion of each song
         song_buttons.append([
             InlineKeyboardButton(f"{idx}. {s_title[:28]}", callback_data=f"playlist:song:{playlist_id}:{s_id}")
         ])
 
-    # Action controls
     action_buttons = [
         [InlineKeyboardButton("▶️ Play Playlist", callback_data=f"playlist:play:{playlist_id}")],
         [
@@ -236,7 +233,6 @@ async def render_playlist_details_screen(user_id: int, playlist_id: str, page: i
         ]
     ]
 
-    # Pagination control row
     nav_buttons = []
     if page > 1:
         nav_buttons.append(InlineKeyboardButton("⬅️ Prev", callback_data=f"playlist:view:{playlist_id}:{page-1}"))
@@ -253,6 +249,21 @@ async def render_playlist_details_screen(user_id: int, playlist_id: str, page: i
 
 
 # ==============================================================================
+# EXPORTED HELPER FOR EXTERNAL IMPORTS (start.py / help.py Compatibility)
+# ==============================================================================
+async def show_my_playlists_menu(client, message_or_cb):
+    """Helper function to fix ImportError for external files calling this function."""
+    if isinstance(message_or_cb, Message):
+        user_id = message_or_cb.from_user.id
+        text, reply_markup = await render_my_playlists_screen(user_id)
+        await message_or_cb.reply_text(text, reply_markup=reply_markup)
+    elif isinstance(message_or_cb, CallbackQuery):
+        user_id = message_or_cb.from_user.id
+        text, reply_markup = await render_my_playlists_screen(user_id)
+        await message_or_cb.message.edit_text(text, reply_markup=reply_markup)
+
+
+# ==============================================================================
 # ROUTER & CALLBACK HANDLER
 # ==============================================================================
 @app.on_callback_query(filters.regex(r"^playlist:") & ~BANNED_USERS)
@@ -261,13 +272,9 @@ async def playlist_callback_router(client, cb: CallbackQuery):
     action = data[1]
     user_id = cb.from_user.id
 
-    # Dummy ignore callback
     if action == "ignore":
         return await cb.answer()
 
-    # --------------------------------------------------------------------------
-    # 1. LIST MY PLAYLISTS
-    # --------------------------------------------------------------------------
     if action == "list":
         if user_id in PLAYLIST_STATES:
             PLAYLIST_STATES.pop(user_id, None)
@@ -276,9 +283,6 @@ async def playlist_callback_router(client, cb: CallbackQuery):
         await cb.message.edit_text(text, reply_markup=reply_markup)
         await cb.answer()
 
-    # --------------------------------------------------------------------------
-    # 2. PROMPT: CREATE PLAYLIST
-    # --------------------------------------------------------------------------
     elif action == "create":
         PLAYLIST_STATES[user_id] = {
             "state": "WAITING_PLAYLIST_NAME",
@@ -296,18 +300,12 @@ async def playlist_callback_router(client, cb: CallbackQuery):
         await cb.message.edit_text(text, reply_markup=InlineKeyboardMarkup(buttons))
         await cb.answer()
 
-    # --------------------------------------------------------------------------
-    # 3. CANCEL INPUT STATE
-    # --------------------------------------------------------------------------
     elif action == "cancel":
         PLAYLIST_STATES.pop(user_id, None)
         text, reply_markup = await render_my_playlists_screen(user_id)
         await cb.message.edit_text(text, reply_markup=reply_markup)
         await cb.answer("Action cancelled.")
 
-    # --------------------------------------------------------------------------
-    # 4. VIEW PLAYLIST DETAILS (PAGINATED)
-    # --------------------------------------------------------------------------
     elif action == "view":
         playlist_id = data[2]
         page = int(data[3]) if len(data) > 3 else 1
@@ -315,13 +313,9 @@ async def playlist_callback_router(client, cb: CallbackQuery):
         await cb.message.edit_text(text, reply_markup=reply_markup)
         await cb.answer()
 
-    # --------------------------------------------------------------------------
-    # 5. ADD CURRENT PLAYING SONG -> CHOOSE PLAYLIST
-    # --------------------------------------------------------------------------
     elif action == "add_current":
         chat_id = cb.message.chat.id
         
-        # Resolve current stream track from EsproMusic internal player state
         active_track = None
         if chat_id in db and db[chat_id]:
             active_track = db[chat_id][0]
@@ -361,9 +355,6 @@ async def playlist_callback_router(client, cb: CallbackQuery):
         await cb.message.edit_text(text, reply_markup=InlineKeyboardMarkup(buttons))
         await cb.answer()
 
-    # --------------------------------------------------------------------------
-    # 6. SAVE CURRENT SONG TO SELECTED PLAYLIST
-    # --------------------------------------------------------------------------
     elif action == "save_curr":
         playlist_id = data[2]
         chat_id = cb.message.chat.id
@@ -404,9 +395,6 @@ async def playlist_callback_router(client, cb: CallbackQuery):
         await cb.message.edit_text(text, reply_markup=InlineKeyboardMarkup(buttons))
         await cb.answer("Added to playlist!")
 
-    # --------------------------------------------------------------------------
-    # 7. PROMPT: MANUAL ADD SONG
-    # --------------------------------------------------------------------------
     elif action == "add_manual":
         playlist_id = data[2]
         PLAYLIST_STATES[user_id] = {
@@ -424,9 +412,6 @@ async def playlist_callback_router(client, cb: CallbackQuery):
         await cb.message.edit_text(text, reply_markup=InlineKeyboardMarkup(buttons))
         await cb.answer()
 
-    # --------------------------------------------------------------------------
-    # 8. VIEW SINGLE SONG DETAILS
-    # --------------------------------------------------------------------------
     elif action == "song":
         playlist_id = data[2]
         song_id = data[3]
@@ -457,9 +442,6 @@ async def playlist_callback_router(client, cb: CallbackQuery):
         await cb.message.edit_text(text, reply_markup=InlineKeyboardMarkup(buttons))
         await cb.answer()
 
-    # --------------------------------------------------------------------------
-    # 9. CONFIRM REMOVE SONG
-    # --------------------------------------------------------------------------
     elif action == "song_remove_confirm":
         playlist_id = data[2]
         song_id = data[3]
@@ -477,9 +459,6 @@ async def playlist_callback_router(client, cb: CallbackQuery):
         await cb.message.edit_text(text, reply_markup=InlineKeyboardMarkup(buttons))
         await cb.answer()
 
-    # --------------------------------------------------------------------------
-    # 10. REMOVE SONG EXECUTION
-    # --------------------------------------------------------------------------
     elif action == "song_remove":
         playlist_id = data[2]
         song_id = data[3]
@@ -490,9 +469,6 @@ async def playlist_callback_router(client, cb: CallbackQuery):
         text, reply_markup = await render_playlist_details_screen(user_id, playlist_id, page=1)
         await cb.message.edit_text(text, reply_markup=reply_markup)
 
-    # --------------------------------------------------------------------------
-    # 11. CONFIRM DELETE PLAYLIST
-    # --------------------------------------------------------------------------
     elif action == "delete":
         playlist_id = data[2]
         playlist = await db_get_playlist(user_id, playlist_id)
@@ -514,9 +490,6 @@ async def playlist_callback_router(client, cb: CallbackQuery):
         await cb.message.edit_text(text, reply_markup=InlineKeyboardMarkup(buttons))
         await cb.answer()
 
-    # --------------------------------------------------------------------------
-    # 12. DELETE PLAYLIST EXECUTION
-    # --------------------------------------------------------------------------
     elif action == "delete_confirm":
         playlist_id = data[2]
         deleted = await db_delete_playlist(user_id, playlist_id)
@@ -529,9 +502,6 @@ async def playlist_callback_router(client, cb: CallbackQuery):
         text, reply_markup = await render_my_playlists_screen(user_id)
         await cb.message.edit_text(text, reply_markup=reply_markup)
 
-    # --------------------------------------------------------------------------
-    # 13. PLAY ENTIRE PLAYLIST INTO STREAM QUEUE
-    # --------------------------------------------------------------------------
     elif action == "play":
         playlist_id = data[2]
         chat_id = cb.message.chat.id
@@ -545,7 +515,6 @@ async def playlist_callback_router(client, cb: CallbackQuery):
 
         await cb.answer(f"▶️ Loading '{pl_name}' playlist...", show_alert=False)
 
-        # Clear active database queue for this chat
         db[chat_id] = []
 
         try:
@@ -574,7 +543,6 @@ async def playlist_callback_router(client, cb: CallbackQuery):
 
         user_name = cb.from_user.first_name
 
-        # Prepare first track
         first_song = songs[0]
         v_id_0 = first_song.get("vidid")
         title_0 = first_song.get("title", "Playlist Song")
@@ -594,7 +562,6 @@ async def playlist_callback_router(client, cb: CallbackQuery):
             "by": user_name,
         }
 
-        # Queue remaining tracks
         for song in songs[1:]:
             v_id = song.get("vidid")
             s_title = song.get("title", "Playlist Song")
@@ -647,7 +614,7 @@ async def playlist_callback_router(client, cb: CallbackQuery):
 
 
 # ==============================================================================
-# TEXT MESSAGE LISTENER FOR INPUT STATES (NAME / SEARCH QUERY)
+# TEXT MESSAGE LISTENER FOR INPUT STATES
 # ==============================================================================
 @app.on_message(filters.text & filters.private & ~BANNED_USERS, group=10)
 async def playlist_text_input_handler(client, message: Message):
@@ -664,17 +631,14 @@ async def playlist_text_input_handler(client, message: Message):
     msg_id = state_data.get("msg_id")
     input_text = message.text.strip()
 
-    # --------------------------------------------------------------------------
-    # STATE A: CREATING PLAYLIST NAME
-    # --------------------------------------------------------------------------
     if state == "WAITING_PLAYLIST_NAME":
         if not input_text or len(input_text) > 30:
-            PLAYLIST_STATES[user_id] = state_data  # Restore state
+            PLAYLIST_STATES[user_id] = state_data
             return await message.reply_text("❌ **Invalid name!** Must be 1 to 30 characters long.")
 
         pl_id, status = await db_create_playlist(user_id, input_text)
         if status == "DUPLICATE":
-            PLAYLIST_STATES[user_id] = state_data  # Restore state
+            PLAYLIST_STATES[user_id] = state_data
             return await message.reply_text(f"❌ You already have a playlist named `{input_text}`!")
 
         text = (
@@ -693,9 +657,6 @@ async def playlist_text_input_handler(client, message: Message):
         except Exception:
             await message.reply_text(text, reply_markup=InlineKeyboardMarkup(buttons))
 
-    # --------------------------------------------------------------------------
-    # STATE B: MANUAL ADD SONG SEARCH QUERY
-    # --------------------------------------------------------------------------
     elif state == "WAITING_PLAYLIST_SONG":
         playlist_id = state_data.get("playlist_id")
         searching_msg = await message.reply_text("🔎 **Searching song on YouTube...**")
