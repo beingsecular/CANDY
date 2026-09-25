@@ -31,7 +31,6 @@ from EsproMusic.utils.database import (
     remove_active_video_chat,
 )
 from EsproMusic.utils.stream.stream import stream
-from EsproMusic.utils.inline import stream_markup
 from config import BANNED_USERS
 
 # Safe import for YouTube search helper
@@ -206,7 +205,7 @@ async def resolve_youtube_track(query: str, vidid: str = None, url: str = None):
 
 
 # ==============================================================================
-# PREMIUM UI / STATE MANAGEMENT 
+# UI MANAGEMENT
 # ==============================================================================
 PLAYLIST_STATES = {}
 
@@ -214,9 +213,7 @@ async def render_my_playlists_screen(user_id: int):
     playlists = await db_get_user_playlists(user_id)
     if not playlists:
         text = (
-            "▰▰▰▰▰▰▰▰▰▰▰▰\n"
-            "   ★ ᴍʏ ᴘʟᴀʏʟɪsᴛs ★\n"
-            "▰▰▰▰▰▰▰▰▰▰▰▰\n\n"
+            "★ **ᴍʏ ᴘʟᴀʏʟɪsᴛs** ★\n\n"
             "➥ ʏᴏᴜ ᴅᴏɴ'ᴛ ʜᴀᴠᴇ ᴀɴʏ sᴀᴠᴇᴅ ᴘʟᴀʏʟɪsᴛs ʏᴇᴛ."
         )
         buttons = [
@@ -226,9 +223,7 @@ async def render_my_playlists_screen(user_id: int):
         return text, InlineKeyboardMarkup(buttons)
 
     text = (
-        "───────────────\n"
-        "   🎵 **ᴍʏ ᴘʟᴀʏʟɪsᴛs** 🎵\n"
-        "───────────────\n\n"
+        "🎵 **ᴍʏ ᴘʟᴀʏʟɪsᴛs** 🎵\n\n"
         "Select a playlist to view songs or start playing:"
     )
     buttons = []
@@ -320,7 +315,7 @@ async def render_playlist_details_screen(user_id: int, playlist_id: str, page: i
 
 
 # ==============================================================================
-# MAIN COMMAND HANDLER: /playlist & /myplaylist
+# COMMAND HANDLER: /playlist & /myplaylist
 # ==============================================================================
 @app.on_message(filters.command(["playlist", "myplaylist"]) & ~BANNED_USERS)
 async def my_playlist_cmd(client, message: Message):
@@ -329,19 +324,6 @@ async def my_playlist_cmd(client, message: Message):
     await message.reply_text(text, reply_markup=reply_markup)
 
 
-# ==============================================================================
-# COMPATIBILITY ALIAS FOR OLD IMPORTS
-# ==============================================================================
-async def show_my_playlists_menu(client, message: Message):
-    """Alias for legacy modules expecting show_my_playlists_menu"""
-    user_id = message.from_user.id
-    text, reply_markup = await render_my_playlists_screen(user_id)
-    return await message.reply_text(text, reply_markup=reply_markup)
-
-
-# ==============================================================================
-# CLOSE BUTTON CALLBACK
-# ==============================================================================
 @app.on_callback_query(filters.regex(r"^close_cb$") & ~BANNED_USERS)
 async def close_cb_handler(client, cb: CallbackQuery):
     try:
@@ -350,9 +332,6 @@ async def close_cb_handler(client, cb: CallbackQuery):
         pass
 
 
-# ==============================================================================
-# ADD TO PLAYLIST FROM GROUP STREAM BUTTON
-# ==============================================================================
 @app.on_callback_query(filters.regex(r"^add_playlist") & ~BANNED_USERS)
 async def add_playlist_from_stream(client, cb: CallbackQuery):
     try:
@@ -575,7 +554,7 @@ async def playlist_callback_router(client, cb: CallbackQuery):
 
 
 # ==============================================================================
-# GROUP COMMAND: /playplaylist & /playpl
+# GROUP COMMAND: /playplaylist & /playpl (FIXED QUEUE & SKIP SUPPORT)
 # ==============================================================================
 @app.on_message(filters.command(["playplaylist", "playpl"]) & ~BANNED_USERS)
 async def play_playlist_cmd(client, message: Message):
@@ -604,7 +583,7 @@ async def play_playlist_cmd(client, message: Message):
     songs = playlist["songs"]
     pl_name = playlist.get("name", "Playlist")
 
-    mystic = await message.reply_text("🔄 **Resolving YouTube tracks... Please wait...**")
+    mystic = await message.reply_text("🔄 **Resolving tracks for group streaming...**")
 
     valid_queue = []
     for song in songs:
@@ -617,9 +596,9 @@ async def play_playlist_cmd(client, message: Message):
             valid_queue.append(resolved)
 
     if not valid_queue:
-        return await mystic.edit_text("❌ **Playlist ke gane YouTube par nahi mil paye!**")
+        return await mystic.edit_text("❌ **Playlist ke gane YouTube par search nahi ho sake.**")
 
-    # Clear queue and stop existing call stream
+    # Reset chat queue list
     db[chat_id] = []
     try:
         if hasattr(EsproCall, "stop_stream"):
@@ -647,7 +626,6 @@ async def play_playlist_cmd(client, message: Message):
 
     user_name = message.from_user.first_name if message.from_user else "User"
 
-    # FIRST TRACK DETAILS FOR STREAM ENGINE
     first_track = valid_queue[0]
     first_details = {
         "title": first_track["title"],
@@ -659,11 +637,11 @@ async def play_playlist_cmd(client, message: Message):
         "by": user_name,
         "user": user_name,
         "user_id": user_id,
-        "streamtype": "audio",
+        "streamtype": "youtube",
         "file": f"vid_{first_track['vidid']}",
     }
 
-    # FORMAT REMAINING TRACKS INTO DB QUEUE WITH FULL COMPATIBILITY
+    # ENQUEUE ALL REMAINING TRACKS INTO STREAMER QUEUE FOR /skip SUPPORT
     for song in valid_queue[1:]:
         d_item = {
             "title": song["title"],
@@ -675,7 +653,7 @@ async def play_playlist_cmd(client, message: Message):
             "by": user_name,
             "user": user_name,
             "user_id": user_id,
-            "streamtype": "audio",
+            "streamtype": "youtube",
             "file": f"vid_{song['vidid']}",
             "old_dur": song["duration_min"],
             "old_second": 180,
@@ -700,14 +678,14 @@ async def play_playlist_cmd(client, message: Message):
             f"⊳ **ᴘʟᴀʏʟɪsᴛ ᴘʟᴀʏɪɴɢ ɪɴ ɢʀᴏᴜᴘ!**\n\n"
             f"📂 **Name:** `{pl_name}`\n"
             f"🎵 **Total Queued:** `{len(valid_queue)} songs`\n\n"
-            f"💡 *Ab aap `/skip` se playlist ke songs skip kar sakte hain!*"
+            f"💡 *Ab aap `/skip` ya Inline Skip button se playlist ke saare songs skip kar sakte hain!*"
         )
     except Exception as e:
         await mystic.edit_text(f"❌ **Error playing playlist:** `{e}`")
 
 
 # ==============================================================================
-# TEXT INPUT LISTENER
+# TEXT INPUT LISTENER FOR CREATION
 # ==============================================================================
 @app.on_message(filters.text & filters.private & ~BANNED_USERS, group=10)
 async def playlist_text_input_handler(client, message: Message):
@@ -786,7 +764,7 @@ async def playlist_text_input_handler(client, message: Message):
             )
 
         buttons = [
-            [InlineKeyboardButton("✚ ᴀᴅᴅ ᴀɴᴏᴛʜᴇʀ sᴏɴɢ", callback_data=f"playlist:add_manual:{playlist_id}")],
+            [InlineKeyboardButton("✚ ᴀᴅ夜 ᴀɴᴏᴛʜᴇʀ sᴏɴɢ", callback_data=f"playlist:add_manual:{playlist_id}")],
             [InlineKeyboardButton("🎵 ᴠɪᴇᴡ ᴘʟᴀʏʟɪsᴛ", callback_data=f"playlist:view:{playlist_id}:1")],
             [InlineKeyboardButton("🔙 ʙᴀᴄᴋ ᴛᴏ ᴘʟᴀʏʟɪsᴛs", callback_data="playlist:list")],
         ]
