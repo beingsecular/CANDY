@@ -225,10 +225,10 @@ async def render_my_playlists_screen(user_id: int):
         return text, InlineKeyboardMarkup(buttons)
 
     text = (
-        "▰▰▰▰▰▰▰▰▰▰▰▰\n"
-        "   ★ ᴍʏ ᴘʟᴀʏʟɪsᴛs ★\n"
-        "▰▰▰▰▰▰▰▰▰▰▰▰\n\n"
-        "➥ sᴇʟᴇᴄᴛ ᴀ ᴘʟᴀʏʟɪsᴛ ᴛᴏ ᴠɪᴇᴡ ᴏʀ ᴘʟᴀʏ :"
+        "───────────────\n"
+        "   🎵 **ᴍʏ ᴘʟᴀʏʟɪsᴛs** 🎵\n"
+        "───────────────\n\n"
+        "Select a playlist to view songs or start playing:"
     )
     buttons = []
     for pl in playlists:
@@ -236,14 +236,13 @@ async def render_my_playlists_screen(user_id: int):
         pl_id = pl.get("playlist_id")
         song_count = len(pl.get("songs", []))
         
-        # Premium aligned buttons
         buttons.append([
-            InlineKeyboardButton(f"📂 {pl_name[:15]} • {song_count} sᴏɴɢs", callback_data=f"playlist:view:{pl_id}:1"),
-            InlineKeyboardButton("⊳ ᴘʟᴀʏ", callback_data=f"playlist:play:{pl_id}"),
+            InlineKeyboardButton(f"📁 {pl_name[:15]} • {song_count} songs", callback_data=f"playlist:view:{pl_id}:1"),
+            InlineKeyboardButton("▶️", callback_data=f"playlist:play:{pl_id}"),
         ])
 
-    buttons.append([InlineKeyboardButton("✚ ᴄʀᴇᴀᴛᴇ ɴᴇᴡ ᴘʟᴀʏʟɪsᴛ", callback_data="playlist:create")])
-    buttons.append([InlineKeyboardButton("✯ ᴄʟᴏsᴇ ✯", callback_data="close_cb")])
+    buttons.append([InlineKeyboardButton("➕ ᴄʀᴇᴀᴛᴇ ɴᴇᴡ ᴘʟᴀʏʟɪsᴛ", callback_data="playlist:create")])
+    buttons.append([InlineKeyboardButton("❌ ᴄʟᴏsᴇ", callback_data="close_cb")])
 
     return text, InlineKeyboardMarkup(buttons)
 
@@ -528,4 +527,4 @@ async def playlist_callback_router(client, cb: CallbackQuery):
             f"⚠️ **ᴅᴇʟᴇᴛᴇ ᴘʟᴀʏʟɪsᴛ?**\n\n"
             f"📂 **Name:** `{playlist.get('name')}`\n"
             f"🎵 **Songs:** `{len(playlist.get('songs', []))}`\n\n"
-      
+            "This will
