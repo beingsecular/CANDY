@@ -607,8 +607,9 @@ async def play_playlist_cmd(client, message: Message):
     if not valid_queue:
         return await mystic.edit_text("❌ **Playlist ke gane resolve nahi ho paaye.**")
 
-    # Clear active chat voice call and old db queue
+    # Clear memory queue for chat_id
     db[chat_id] = []
+
     try:
         if hasattr(EsproCall, "stop_stream"):
             await EsproCall.stop_stream(chat_id)
@@ -647,29 +648,13 @@ async def play_playlist_cmd(client, message: Message):
         "user": user_name,
         "user_id": user_id,
         "streamtype": "youtube",
-        "file": f"vid_{first_track['vidid']}",
+        "file": first_track["link"],
+        "old_dur": first_track["duration_min"],
+        "old_second": 180,
+        "played": 0,
     }
 
-    # PROPER METADATA FOR QUEUE NEXT TRACK SKIP
-    for song in valid_queue[1:]:
-        d_item = {
-            "title": song["title"],
-            "link": song["link"],
-            "vidid": song["vidid"],
-            "dur": song["duration_min"],
-            "duration_min": song["duration_min"],
-            "thumb": song["thumb"],
-            "by": user_name,
-            "user": user_name,
-            "user_id": user_id,
-            "streamtype": "youtube",
-            "file": f"vid_{song['vidid']}",
-            "old_dur": song["duration_min"],
-            "old_second": 180,
-            "played": 0,
-        }
-        db[chat_id].append(d_item)
-
+    # Stream the first track
     try:
         await stream(
             _,
@@ -683,14 +668,39 @@ async def play_playlist_cmd(client, message: Message):
             streamtype="youtube",
             forceplay=True,
         )
-        await mystic.edit_text(
-            f"⊳ **ᴘʟᴀʏʟɪsᴛ ᴘʟᴀʏɪɴɢ ɪɴ ɢʀᴏᴜᴘ!**\n\n"
-            f"📂 **Name:** `{pl_name}`\n"
-            f"🎵 **Total Queued:** `{len(valid_queue)} songs`\n\n"
-            f"💡 *Ab aap `/skip` ya Inline Skip button dabaney par agla song play ho jayega!*"
-        )
     except Exception as e:
-        await mystic.edit_text(f"❌ **Error playing playlist:** `{e}`")
+        return await mystic.edit_text(f"❌ **Error playing playlist:** `{e}`")
+
+    # Re-initialize db queue after first stream call registers the active call
+    if chat_id not in db:
+        db[chat_id] = []
+
+    # Format remaining songs for Yukki / Espro skip handling
+    for song in valid_queue[1:]:
+        d_item = {
+            "title": song["title"],
+            "link": song["link"],
+            "vidid": song["vidid"],
+            "dur": song["duration_min"],
+            "duration_min": song["duration_min"],
+            "thumb": song["thumb"],
+            "by": user_name,
+            "user": user_name,
+            "user_id": user_id,
+            "streamtype": "youtube",
+            "file": song["link"],
+            "old_dur": song["duration_min"],
+            "old_second": 180,
+            "played": 0,
+        }
+        db[chat_id].append(d_item)
+
+    await mystic.edit_text(
+        f"⊳ **ᴘʟᴀʏʟɪsᴛ ᴘʟᴀʏɪɴɢ ɪɴ ɢʀᴏᴜᴘ!**\n\n"
+        f"📂 **Name:** `{pl_name}`\n"
+        f"🎵 **Total Queued:** `{len(valid_queue)} songs`\n\n"
+        f"💡 *Ab aap `/skip` ya Inline Skip button dabaney par agla song play ho jayega!*"
+    )
 
 
 # ==============================================================================
