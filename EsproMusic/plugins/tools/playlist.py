@@ -31,7 +31,6 @@ from EsproMusic.utils.database import (
     remove_active_video_chat,
 )
 from EsproMusic.utils.stream.stream import stream
-from EsproMusic.utils.inline import stream_markup
 from config import BANNED_USERS
 
 # Safe import for YouTube search helper
@@ -47,6 +46,7 @@ except Exception:
 # ==============================================================================
 playlist_collection = mongodb.playlists_v2
 
+
 async def db_get_user_playlists(user_id: int):
     cursor = playlist_collection.find({"user_id": user_id})
     playlists = []
@@ -54,10 +54,12 @@ async def db_get_user_playlists(user_id: int):
         playlists.append(doc)
     return playlists
 
+
 async def db_get_playlist(user_id: int, playlist_id: str):
     return await playlist_collection.find_one(
         {"user_id": user_id, "playlist_id": playlist_id}
     )
+
 
 async def db_create_playlist(user_id: int, name: str):
     existing = await playlist_collection.find_one(
@@ -76,6 +78,7 @@ async def db_create_playlist(user_id: int, name: str):
     }
     await playlist_collection.insert_one(doc)
     return playlist_id, "SUCCESS"
+
 
 async def db_add_song_to_playlist(user_id: int, playlist_id: str, song_data: dict):
     playlist = await db_get_playlist(user_id, playlist_id)
@@ -104,11 +107,13 @@ async def db_add_song_to_playlist(user_id: int, playlist_id: str, song_data: dic
     )
     return True, song_entry
 
+
 async def db_delete_playlist(user_id: int, playlist_id: str):
     res = await playlist_collection.delete_one(
         {"user_id": user_id, "playlist_id": playlist_id}
     )
     return res.deleted_count > 0
+
 
 async def db_remove_song(user_id: int, playlist_id: str, song_id: str):
     res = await playlist_collection.update_one(
@@ -131,6 +136,7 @@ def extract_yt_id(url_or_id: str):
     if match:
         return match.group(1)
     return None
+
 
 async def resolve_youtube_track(query: str, vidid: str = None, url: str = None):
     existing_id = extract_yt_id(vidid) or extract_yt_id(url) or extract_yt_id(query)
@@ -206,29 +212,26 @@ async def resolve_youtube_track(query: str, vidid: str = None, url: str = None):
 
 
 # ==============================================================================
-# PREMIUM UI / STATE MANAGEMENT 
+# STATE MANAGEMENT & UI
 # ==============================================================================
 PLAYLIST_STATES = {}
+
 
 async def render_my_playlists_screen(user_id: int):
     playlists = await db_get_user_playlists(user_id)
     if not playlists:
         text = (
-            "▰▰▰▰▰▰▰▰▰▰▰▰\n"
-            "   ★ ᴍʏ ᴘʟᴀʏʟɪsᴛs ★\n"
-            "▰▰▰▰▰▰▰▰▰▰▰▰\n\n"
-            "➥ ʏᴏᴜ ᴅᴏɴ'ᴛ ʜᴀᴠᴇ ᴀɴʏ sᴀᴠᴇᴅ ᴘʟᴀʏʟɪsᴛs ʏᴇᴛ."
+            "🎶 **─── ｢ MY PLAYLISTS ｣ ───**\n\n"
+            "❌ *You don't have any saved playlists yet.*"
         )
         buttons = [
-            [InlineKeyboardButton("✚ ᴄʀᴇᴀᴛᴇ ɴᴇᴡ ᴘʟᴀʏʟɪsᴛ", callback_data="playlist:create")],
-            [InlineKeyboardButton("✯ ᴄʟᴏsᴇ ✯", callback_data="close_cb")],
+            [InlineKeyboardButton("➕ Create Your First Playlist", callback_data="playlist:create")],
+            [InlineKeyboardButton("❌ Close", callback_data="close_cb")],
         ]
         return text, InlineKeyboardMarkup(buttons)
 
     text = (
-        "───────────────\n"
-        "   🎵 **ᴍʏ ᴘʟᴀʏʟɪsᴛs** 🎵\n"
-        "───────────────\n\n"
+        "🎶 **─── ｢ MY PLAYLISTS ｣ ───**\n\n"
         "Select a playlist to view songs or start playing:"
     )
     buttons = []
@@ -236,14 +239,13 @@ async def render_my_playlists_screen(user_id: int):
         pl_name = pl.get("name", "Playlist")
         pl_id = pl.get("playlist_id")
         song_count = len(pl.get("songs", []))
-        
         buttons.append([
-            InlineKeyboardButton(f"📁 {pl_name[:15]} • {song_count} songs", callback_data=f"playlist:view:{pl_id}:1"),
+            InlineKeyboardButton(f"📁 {pl_name} • {song_count} songs", callback_data=f"playlist:view:{pl_id}:1"),
             InlineKeyboardButton("▶️", callback_data=f"playlist:play:{pl_id}"),
         ])
 
-    buttons.append([InlineKeyboardButton("➕ ᴄʀᴇᴀᴛᴇ ɴᴇᴡ ᴘʟᴀʏʟɪsᴛ", callback_data="playlist:create")])
-    buttons.append([InlineKeyboardButton("❌ ᴄʟᴏsᴇ", callback_data="close_cb")])
+    buttons.append([InlineKeyboardButton("➕ Create New Playlist", callback_data="playlist:create")])
+    buttons.append([InlineKeyboardButton("❌ Close", callback_data="close_cb")])
 
     return text, InlineKeyboardMarkup(buttons)
 
@@ -252,7 +254,7 @@ async def render_playlist_details_screen(user_id: int, playlist_id: str, page: i
     playlist = await db_get_playlist(user_id, playlist_id)
     if not playlist:
         text = "❌ **Playlist not found or has been deleted.**"
-        buttons = [[InlineKeyboardButton("🔙 ʙᴀᴄᴋ ᴛᴏ ᴘʟᴀʏʟɪsᴛs", callback_data="playlist:list")]]
+        buttons = [[InlineKeyboardButton("⬅️ Back to Playlists", callback_data="playlist:list")]]
         return text, InlineKeyboardMarkup(buttons)
 
     pl_name = playlist.get("name", "Playlist")
@@ -261,14 +263,14 @@ async def render_playlist_details_screen(user_id: int, playlist_id: str, page: i
 
     if total_songs == 0:
         text = (
-            f"★ **ᴘʟᴀʏʟɪsᴛ:** `{pl_name}`\n\n"
-            "➥ ɴᴏ sᴏɴɢs ʜᴀᴠᴇ ʙᴇᴇɴ ᴀᴅᴅᴇᴅ ʏᴇᴛ."
+            f"📁 **Playlist:** `{pl_name}`\n\n"
+            "❌ *No songs have been added yet.*"
         )
         buttons = [
-            [InlineKeyboardButton("✚ ᴀᴅᴅ sᴏɴɢ", callback_data=f"playlist:add_manual:{playlist_id}")],
+            [InlineKeyboardButton("➕ Add Song", callback_data=f"playlist:add_manual:{playlist_id}")],
             [
-                InlineKeyboardButton("🗑 ᴅᴇʟᴇᴛᴇ", callback_data=f"playlist:delete:{playlist_id}"),
-                InlineKeyboardButton("🔙 ʙᴀᴄᴋ", callback_data="playlist:list"),
+                InlineKeyboardButton("🗑️ Delete Playlist", callback_data=f"playlist:delete:{playlist_id}"),
+                InlineKeyboardButton("⬅️ Back", callback_data="playlist:list"),
             ],
         ]
         return text, InlineKeyboardMarkup(buttons)
@@ -282,39 +284,41 @@ async def render_playlist_details_screen(user_id: int, playlist_id: str, page: i
     page_songs = songs[start_idx:end_idx]
 
     text = (
-        f"★ **ᴘʟᴀʏʟɪsᴛ:** `{pl_name}`\n"
-        f"★ **ᴛᴏᴛᴀʟ sᴏɴɢs:** `{total_songs}`\n\n"
-        f"➥ **sᴏɴɢs ʟɪsᴛ (ᴘᴀɢᴇ {page}/{total_pages}):**\n"
+        f"📁 **Playlist:** `{pl_name}`\n"
+        f"🎵 **Total Songs:** {total_songs}\n"
+        f"👤 **Owner:** You\n\n"
+        f"**Songs List (Page {page}/{total_pages}):**\n"
     )
 
     song_buttons = []
     for idx, song in enumerate(page_songs, start=start_idx + 1):
         s_title = song.get("title", "Track")
+        s_artist = song.get("artist", "Artist")
         s_id = song.get("song_id")
-        text += f"**{idx}.** `{s_title[:30]}`\n"
+        text += f"{idx}. 🎵 **{s_title}** — _{s_artist}_\n"
         song_buttons.append([
             InlineKeyboardButton(f"{idx}. {s_title[:28]}", callback_data=f"playlist:song:{playlist_id}:{s_id}")
         ])
 
     action_buttons = [
-        [InlineKeyboardButton("⊳ ᴘʟᴀʏ ᴀʟʟ", callback_data=f"playlist:play:{playlist_id}")],
+        [InlineKeyboardButton("▶️ Play Playlist", callback_data=f"playlist:play:{playlist_id}")],
         [
-            InlineKeyboardButton("✚ ᴀᴅᴅ sᴏɴɢ", callback_data=f"playlist:add_manual:{playlist_id}"),
-            InlineKeyboardButton("🗑 ᴅᴇʟᴇᴛᴇ", callback_data=f"playlist:delete:{playlist_id}"),
+            InlineKeyboardButton("➕ Add Song", callback_data=f"playlist:add_manual:{playlist_id}"),
+            InlineKeyboardButton("🗑️ Delete Playlist", callback_data=f"playlist:delete:{playlist_id}"),
         ]
     ]
 
     nav_buttons = []
     if page > 1:
-        nav_buttons.append(InlineKeyboardButton("⇦ ᴘʀᴇᴠ", callback_data=f"playlist:view:{playlist_id}:{page-1}"))
+        nav_buttons.append(InlineKeyboardButton("⬅️ Prev", callback_data=f"playlist:view:{playlist_id}:{page-1}"))
     nav_buttons.append(InlineKeyboardButton(f"📖 {page}/{total_pages}", callback_data="playlist:ignore"))
     if page < total_pages:
-        nav_buttons.append(InlineKeyboardButton("ɴᴇxᴛ ⇨", callback_data=f"playlist:view:{playlist_id}:{page+1}"))
+        nav_buttons.append(InlineKeyboardButton("Next ➡️", callback_data=f"playlist:view:{playlist_id}:{page+1}"))
 
     full_keyboard = song_buttons + action_buttons
     if total_pages > 1:
         full_keyboard.append(nav_buttons)
-    full_keyboard.append([InlineKeyboardButton("🔙 ʙᴀᴄᴋ ᴛᴏ ᴘʟᴀʏʟɪsᴛs", callback_data="playlist:list")])
+    full_keyboard.append([InlineKeyboardButton("⬅️ Back to Playlists", callback_data="playlist:list")])
 
     return text, InlineKeyboardMarkup(full_keyboard)
 
@@ -424,10 +428,10 @@ async def playlist_callback_router(client, cb: CallbackQuery):
         }
 
         text = (
-            "📂 **ᴄʀᴇᴀᴛᴇ ɴᴇᴡ ᴘʟᴀʏʟɪsᴛ**\n\n"
-            "➥ ᴘʟᴇᴀsᴇ **ᴛʏᴘᴇ ᴀɴᴅ sᴇɴᴅ ᴛʜᴇ ɴᴀᴍᴇ** ꜰᴏʀ ʏᴏᴜʀ ɴᴇᴡ ᴘʟᴀʏʟɪsᴛ ɪɴ ᴛʜɪs ᴄʜᴀᴛ."
+            "📁 **Create New Playlist**\n\n"
+            "Please **type and send the name** for your new playlist in this chat."
         )
-        buttons = [[InlineKeyboardButton("❌ ᴄᴀɴᴄᴇʟ", callback_data="playlist:cancel")]]
+        buttons = [[InlineKeyboardButton("❌ Cancel", callback_data="playlist:cancel")]]
         await cb.message.edit_text(text, reply_markup=InlineKeyboardMarkup(buttons))
         await cb.answer()
 
@@ -454,10 +458,10 @@ async def playlist_callback_router(client, cb: CallbackQuery):
         }
 
         text = (
-            "🎵 **ᴀᴅᴅ sᴏɴɢ ᴛᴏ ᴘʟᴀʏʟɪsᴛ**\n\n"
-            "➥ ᴘʟᴇᴀsᴇ **ᴛʏᴘᴇ ᴀɴᴅ sᴇɴᴅ ᴛʜᴇ sᴏɴɢ ɴᴀᴍᴇ ᴏʀ ʏᴏᴜᴛᴜʙᴇ ʟɪɴᴋ** ɪɴ ᴛʜɪs ᴄʜᴀᴛ."
+            "🎵 **Add Song to Playlist**\n\n"
+            "Please **type and send the song name or YouTube link** in this chat."
         )
-        buttons = [[InlineKeyboardButton("❌ ᴄᴀɴᴄᴇʟ", callback_data=f"playlist:view:{playlist_id}:1")]]
+        buttons = [[InlineKeyboardButton("❌ Cancel", callback_data=f"playlist:view:{playlist_id}:1")]]
         await cb.message.edit_text(text, reply_markup=InlineKeyboardMarkup(buttons))
         await cb.answer()
 
@@ -482,11 +486,11 @@ async def playlist_callback_router(client, cb: CallbackQuery):
             f"🎵 **{matched_song.get('title')}**\n"
             f"👤 **Artist:** `{matched_song.get('artist')}`\n"
             f"⏱️ **Duration:** `{matched_song.get('duration')}`\n"
-            f"📂 **Playlist:** `{playlist.get('name')}`"
+            f"📁 **Playlist:** `{playlist.get('name')}`"
         )
         buttons = [
-            [InlineKeyboardButton("🗑 ʀᴇᴍᴏᴠᴇ sᴏɴɢ", callback_data=f"playlist:song_remove_confirm:{playlist_id}:{song_id}")],
-            [InlineKeyboardButton("🔙 ʙᴀᴄᴋ", callback_data=f"playlist:view:{playlist_id}:1")],
+            [InlineKeyboardButton("🗑️ Remove Song", callback_data=f"playlist:song_remove_confirm:{playlist_id}:{song_id}")],
+            [InlineKeyboardButton("⬅️ Back", callback_data=f"playlist:view:{playlist_id}:1")],
         ]
         await cb.message.edit_text(text, reply_markup=InlineKeyboardMarkup(buttons))
         await cb.answer()
@@ -496,13 +500,13 @@ async def playlist_callback_router(client, cb: CallbackQuery):
         song_id = data[3]
 
         text = (
-            "⚠️ **ʀᴇᴍᴏᴠᴇ sᴏɴɢ?**\n\n"
+            "⚠️ **Remove Song?**\n\n"
             "Are you sure you want to remove this song from your playlist?"
         )
         buttons = [
             [
-                InlineKeyboardButton("✅ ʏᴇs", callback_data=f"playlist:song_remove:{playlist_id}:{song_id}"),
-                InlineKeyboardButton("❌ ɴᴏ", callback_data=f"playlist:song:{playlist_id}:{song_id}"),
+                InlineKeyboardButton("✅ Yes, Remove", callback_data=f"playlist:song_remove:{playlist_id}:{song_id}"),
+                InlineKeyboardButton("❌ Cancel", callback_data=f"playlist:song:{playlist_id}:{song_id}"),
             ]
         ]
         await cb.message.edit_text(text, reply_markup=InlineKeyboardMarkup(buttons))
@@ -525,15 +529,15 @@ async def playlist_callback_router(client, cb: CallbackQuery):
             return await cb.answer("Playlist not found.", show_alert=True)
 
         text = (
-            f"⚠️ **ᴅᴇʟᴇᴛᴇ ᴘʟᴀʏʟɪsᴛ?**\n\n"
-            f"📂 **Name:** `{playlist.get('name')}`\n"
+            f"⚠️ **Delete Playlist?**\n\n"
+            f"📁 **Name:** `{playlist.get('name')}`\n"
             f"🎵 **Songs:** `{len(playlist.get('songs', []))}`\n\n"
-            "This will permanently delete this playlist."
+            "This will permanently delete this playlist and its saved tracks."
         )
         buttons = [
             [
-                InlineKeyboardButton("✅ ʏᴇs, ᴅᴇʟᴇᴛᴇ", callback_data=f"playlist:delete_confirm:{playlist_id}"),
-                InlineKeyboardButton("❌ ᴄᴀɴᴄᴇʟ", callback_data=f"playlist:view:{playlist_id}:1"),
+                InlineKeyboardButton("✅ Yes, Delete", callback_data=f"playlist:delete_confirm:{playlist_id}"),
+                InlineKeyboardButton("❌ Cancel", callback_data=f"playlist:view:{playlist_id}:1"),
             ]
         ]
         await cb.message.edit_text(text, reply_markup=InlineKeyboardMarkup(buttons))
@@ -561,14 +565,14 @@ async def playlist_callback_router(client, cb: CallbackQuery):
         cmd = f"/playplaylist {playlist_id}"
 
         text = (
-            f"⊳ **ᴘʟᴀʏ ᴘʟᴀʏʟɪsᴛ ɪɴ ɢʀᴏᴜᴘ**\n\n"
-            f"📂 **Playlist:** `{pl_name}` ({len(playlist['songs'])} songs)\n\n"
+            f"▶️ **Play Playlist in Group Chat**\n\n"
+            f"📁 **Playlist:** `{pl_name}` ({len(playlist['songs'])} songs)\n\n"
             f"👇 **Group mein bhejain:**\n\n"
             f"`{cmd}`"
         )
         buttons = [
-            [InlineKeyboardButton("🔙 ʙᴀᴄᴋ ᴛᴏ ᴘʟᴀʏʟɪsᴛ", callback_data=f"playlist:view:{playlist_id}:1")],
-            [InlineKeyboardButton("✯ ᴄʟᴏsᴇ ✯", callback_data="close_cb")]
+            [InlineKeyboardButton("⬅️ Back to Playlist", callback_data=f"playlist:view:{playlist_id}:1")],
+            [InlineKeyboardButton("❌ Close", callback_data="close_cb")]
         ]
         await cb.message.edit_text(text, reply_markup=InlineKeyboardMarkup(buttons))
         await cb.answer()
@@ -663,7 +667,7 @@ async def play_playlist_cmd(client, message: Message):
         "file": f"vid_{first_track['vidid']}",
     }
 
-    # FORMAT REMAINING TRACKS INTO DB QUEUE WITH FULL COMPATIBILITY
+    # FORMAT REMAINING TRACKS INTO DB QUEUE
     for song in valid_queue[1:]:
         d_item = {
             "title": song["title"],
@@ -679,7 +683,6 @@ async def play_playlist_cmd(client, message: Message):
             "file": f"vid_{song['vidid']}",
             "old_dur": song["duration_min"],
             "old_second": 180,
-            "played": 0,
         }
         db[chat_id].append(d_item)
 
@@ -697,10 +700,10 @@ async def play_playlist_cmd(client, message: Message):
             forceplay=True,
         )
         await mystic.edit_text(
-            f"⊳ **ᴘʟᴀʏʟɪsᴛ ᴘʟᴀʏɪɴɢ ɪɴ ɢʀᴏᴜᴘ!**\n\n"
-            f"📂 **Name:** `{pl_name}`\n"
+            f"▶️ **Playlist Playing in Group!**\n\n"
+            f"📁 **Name:** `{pl_name}`\n"
             f"🎵 **Total Queued:** `{len(valid_queue)} songs`\n\n"
-            f"💡 *Ab aap `/skip` se playlist ke songs skip kar sakte hain!*"
+            f"💡 *Ab aap normal `/skip` command se bhi playlist ke gane skip kar sakte hain!*"
         )
     except Exception as e:
         await mystic.edit_text(f"❌ **Error playing playlist:** `{e}`")
@@ -738,14 +741,14 @@ async def playlist_text_input_handler(client, message: Message):
             return await message.reply_text(f"❌ You already have a playlist named `{input_text}`!")
 
         text = (
-            "✅ **ᴘʟᴀʏʟɪsᴛ ᴄʀᴇᴀᴛᴇᴅ sᴜᴄᴄᴇssꜰᴜʟʟʏ!**\n\n"
-            f"📂 **Name:** `{input_text}`\n"
+            "✅ **Playlist Created Successfully!**\n\n"
+            f"📁 **Name:** `{input_text}`\n"
             "Your playlist is ready. Start adding songs now!"
         )
         buttons = [
-            [InlineKeyboardButton("✚ ᴀᴅᴅ sᴏɴɢs", callback_data=f"playlist:add_manual:{pl_id}")],
-            [InlineKeyboardButton("🎵 ᴠɪᴇᴡ ᴘʟᴀʏʟɪsᴛ", callback_data=f"playlist:view:{pl_id}:1")],
-            [InlineKeyboardButton("🔙 ʙᴀᴄᴋ ᴛᴏ ᴘʟᴀʏʟɪsᴛs", callback_data="playlist:list")],
+            [InlineKeyboardButton("➕ Add Songs", callback_data=f"playlist:add_manual:{pl_id}")],
+            [InlineKeyboardButton("🎵 View Playlist", callback_data=f"playlist:view:{pl_id}:1")],
+            [InlineKeyboardButton("⬅️ Back to Playlists", callback_data="playlist:list")],
         ]
 
         try:
@@ -780,15 +783,15 @@ async def playlist_text_input_handler(client, message: Message):
             text = f"⚠️ **This track is already in '{pl_name}'!**"
         else:
             text = (
-                "✅ **sᴏɴɢ ᴀᴅᴅᴇᴅ!**\n\n"
+                "✅ **Song Added!**\n\n"
                 f"🎵 **Track:** `{resolved['title']}`\n"
-                f"📂 **Playlist:** `{pl_name}`"
+                f"📁 **Playlist:** `{pl_name}`"
             )
 
         buttons = [
-            [InlineKeyboardButton("✚ ᴀᴅᴅ ᴀɴᴏᴛʜᴇʀ sᴏɴɢ", callback_data=f"playlist:add_manual:{playlist_id}")],
-            [InlineKeyboardButton("🎵 ᴠɪᴇᴡ ᴘʟᴀʏʟɪsᴛ", callback_data=f"playlist:view:{playlist_id}:1")],
-            [InlineKeyboardButton("🔙 ʙᴀᴄᴋ ᴛᴏ ᴘʟᴀʏʟɪsᴛs", callback_data="playlist:list")],
+            [InlineKeyboardButton("➕ Add Another Song", callback_data=f"playlist:add_manual:{playlist_id}")],
+            [InlineKeyboardButton("🎵 View Playlist", callback_data=f"playlist:view:{playlist_id}:1")],
+            [InlineKeyboardButton("⬅️ Back to Playlists", callback_data="playlist:list")],
         ]
 
         try:
