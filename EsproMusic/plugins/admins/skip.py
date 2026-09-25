@@ -38,44 +38,34 @@ async def skip(cli, message: Message, _, chat_id):
     )
 
     # ============================================================
-    # /skip NUMBER
-    # Example: /skip 2
+    # 1. /skip NUMBER (e.g., /skip 3)
     # ============================================================
-
     if len(message.command) >= 2:
 
         loop = await get_loop(chat_id)
 
         if loop != 0:
-            return await message.reply_text(
-                _["admin_8"]
-            )
+            return await message.reply_text(_["admin_8"])
 
         state = message.text.split(None, 1)[1].strip()
 
         if not state.isnumeric():
-            return await message.reply_text(
-                _["admin_9"]
-            )
+            return await message.reply_text(_["admin_9"])
 
         state = int(state)
 
         queue = db.get(chat_id)
 
         if not queue:
-            return await message.reply_text(
-                _["queue_2"]
-            )
+            return await message.reply_text(_["queue_2"])
 
-        # Keep at least current item handling safe
         if state < 1 or state > len(queue):
             return await message.reply_text(
                 _["admin_11"].format(len(queue))
             )
 
-        # Remove current + requested number of queued tracks.
-        # We never touch the queue accidentally when it is empty.
-        for _i in range(state):
+        # Remove 'state' number of tracks from db (including current playing track)
+        for _ in range(state):
             if not db.get(chat_id):
                 break
 
@@ -87,7 +77,7 @@ async def skip(cli, message: Message, _, chat_id):
                 except Exception:
                     pass
 
-        # If queue is finished, try autoplay.
+        # If queue empty after bulk skip -> Try Autoplay or Stop Stream
         if not db.get(chat_id):
             try:
                 from EsproMusic.plugins.tools.autoplay import try_autoplay
@@ -113,73 +103,48 @@ async def skip(cli, message: Message, _, chat_id):
             except Exception:
                 return
 
-        # Do NOT manually start another song here.
-        # The normal /skip logic below can handle it.
-        # We continue only for /skip 1.
-        if state != 1:
-            return
-
     # ============================================================
-    # CURRENT QUEUE
+    # 2. NORMAL /skip OR NEXT TRACK PROCESS
     # ============================================================
+    else:
+        # Check current queue availability
+        queue = db.get(chat_id)
 
-    check = db.get(chat_id)
+        if not queue or len(queue) == 0:
+            try:
+                from EsproMusic.plugins.tools.autoplay import try_autoplay
 
-    if not check or len(check) == 0:
+                if await try_autoplay(chat_id, None):
+                    return
+            except Exception:
+                pass
 
-        # Try autoplay first
-        try:
-            from EsproMusic.plugins.tools.autoplay import try_autoplay
-
-            if await try_autoplay(chat_id, None):
-                return
-        except Exception:
-            pass
-
-        try:
-            await message.reply_text(
-                text=_["admin_6"].format(
-                    user_mention,
-                    chat_title,
-                ),
-                reply_markup=close_markup(_),
-            )
-        except Exception:
             try:
                 await message.reply_text(
-                    "⏭️ **Stream skipped / Stopped.**"
+                    text=_["admin_6"].format(
+                        user_mention,
+                        chat_title,
+                    ),
+                    reply_markup=close_markup(_),
                 )
             except Exception:
                 pass
 
+            try:
+                return await Ritik.stop_stream(chat_id)
+            except Exception:
+                return
+
+        # Pop current playing song/playlist track
+        current_song = db[chat_id].pop(0)
+
         try:
-            return await Ritik.stop_stream(chat_id)
+            await auto_clean(current_song)
         except Exception:
-            return
+            pass
 
-    # ============================================================
-    # IMPORTANT FIX
-    #
-    # db[chat_id][0] = CURRENT PLAYING SONG
-    #
-    # Remove current song first.
-    # After that db[chat_id][0] becomes NEXT SONG.
-    # ============================================================
-
-    current_song = db[chat_id].pop(0)
-
-    try:
-        await auto_clean(current_song)
-    except Exception:
-        pass
-
-    # ============================================================
-    # NO NEXT SONG
-    # ============================================================
-
+    # Re-check queue after popping
     if not db.get(chat_id):
-
-        # Try autoplay
         try:
             from EsproMusic.plugins.tools.autoplay import try_autoplay
 
@@ -197,12 +162,7 @@ async def skip(cli, message: Message, _, chat_id):
                 reply_markup=close_markup(_),
             )
         except Exception:
-            try:
-                await message.reply_text(
-                    "⏭️ **Queue finished / Stopped.**"
-                )
-            except Exception:
-                pass
+            pass
 
         try:
             return await Ritik.stop_stream(chat_id)
@@ -210,9 +170,8 @@ async def skip(cli, message: Message, _, chat_id):
             return
 
     # ============================================================
-    # THIS IS THE REAL NEXT SONG
+    # 3. PLAY NEXT TRACK IN QUEUE / PLAYLIST
     # ============================================================
-
     next_song = db[chat_id][0]
 
     queued = next_song.get("file", "")
@@ -244,17 +203,13 @@ async def skip(cli, message: Message, _, chat_id):
         else None
     )
 
-    # ============================================================
-    # RESET NEXT SONG STATE
-    # ============================================================
-
+    # Reset metadata state for next item
     try:
         db[chat_id][0]["played"] = 0
     except Exception:
         pass
 
     exis = next_song.get("old_dur")
-
     if exis:
         try:
             db[chat_id][0]["dur"] = exis
@@ -267,12 +222,8 @@ async def skip(cli, message: Message, _, chat_id):
         except Exception:
             pass
 
-    # ============================================================
-    # 1. LIVE STREAM
-    # ============================================================
-
+    # A. Live Stream Handling
     if "live_" in str(queued):
-
         n, link = await YouTube.video(
             videoid,
             True,
@@ -303,42 +254,26 @@ async def skip(cli, message: Message, _, chat_id):
                 f"❌ **Skip failed:** `{e}`"
             )
 
-        button = stream_markup(
-            _,
-            chat_id,
-        )
-
-        img = await get_thumb(
-            videoid
-        )
+        button = stream_markup(_, chat_id)
+        img = await get_thumb(videoid)
 
         run = await message.reply_photo(
             photo=img,
             caption=_["stream_1"].format(
                 f"https://t.me/{app.username}?start=info_{videoid}",
                 title[:23],
-                next_song.get(
-                    "dur",
-                    "03:00",
-                ),
+                next_song.get("dur", "03:00"),
                 user,
             ),
-            reply_markup=InlineKeyboardMarkup(
-                button
-            ),
+            reply_markup=InlineKeyboardMarkup(button),
         )
 
         db[chat_id][0]["mystic"] = run
         db[chat_id][0]["markup"] = "tg"
-
         return
 
-    # ============================================================
-    # 2. INDEX STREAM
-    # ============================================================
-
+    # B. Index Stream Handling
     elif "index_" in str(queued):
-
         try:
             await Ritik.skip_stream(
                 chat_id,
@@ -350,30 +285,19 @@ async def skip(cli, message: Message, _, chat_id):
                 f"❌ **Skip failed:** `{e}`"
             )
 
-        button = stream_markup(
-            _,
-            chat_id,
-        )
+        button = stream_markup(_, chat_id)
 
         run = await message.reply_photo(
             photo=config.STREAM_IMG_URL,
-            caption=_["stream_2"].format(
-                user
-            ),
-            reply_markup=InlineKeyboardMarkup(
-                button
-            ),
+            caption=_["stream_2"].format(user),
+            reply_markup=InlineKeyboardMarkup(button),
         )
 
         db[chat_id][0]["mystic"] = run
         db[chat_id][0]["markup"] = "tg"
-
         return
 
-    # ============================================================
-    # 3. YOUTUBE TRACK
-    # ============================================================
-
+    # C. YouTube Track / Playlist Track Handling
     elif (
         videoid
         and videoid not in [
@@ -382,23 +306,18 @@ async def skip(cli, message: Message, _, chat_id):
             "none",
         ]
     ):
-
         mystic = await message.reply_text(
             _["call_7"],
             disable_web_page_preview=True,
         )
 
-        # Existing downloaded file
         file_path = (
             queued
-            if queued
-            and os.path.exists(queued)
+            if queued and os.path.exists(queued)
             else None
         )
 
-        # Download again if required
         if not file_path:
-
             try:
                 file_path, direct = await YouTube.download(
                     videoid,
@@ -406,18 +325,12 @@ async def skip(cli, message: Message, _, chat_id):
                     videoid=True,
                     video=status,
                 )
-
             except Exception as e:
-
                 return await mystic.edit_text(
                     f"❌ **Download failed:** `{e}`"
                 )
 
-        if (
-            not file_path
-            or not os.path.exists(file_path)
-        ):
-
+        if not file_path or not os.path.exists(file_path):
             return await mystic.edit_text(
                 "❌ **Audio file download nahi ho payi.**"
             )
@@ -430,7 +343,6 @@ async def skip(cli, message: Message, _, chat_id):
         except Exception:
             image = None
 
-        # Start NEXT song
         try:
             await Ritik.skip_stream(
                 chat_id,
@@ -438,36 +350,23 @@ async def skip(cli, message: Message, _, chat_id):
                 video=status,
                 image=image,
             )
-
         except Exception as e:
-
             return await mystic.edit_text(
                 f"❌ **Skip stream failed:** `{e}`"
             )
 
-        button = stream_markup(
-            _,
-            chat_id,
-        )
-
-        img = await get_thumb(
-            videoid
-        )
+        button = stream_markup(_, chat_id)
+        img = await get_thumb(videoid)
 
         run = await message.reply_photo(
             photo=img,
             caption=_["stream_1"].format(
                 f"https://t.me/{app.username}?start=info_{videoid}",
                 title[:23],
-                next_song.get(
-                    "dur",
-                    "03:00",
-                ),
+                next_song.get("dur", "03:00"),
                 user,
             ),
-            reply_markup=InlineKeyboardMarkup(
-                button
-            ),
+            reply_markup=InlineKeyboardMarkup(button),
         )
 
         db[chat_id][0]["mystic"] = run
@@ -480,36 +379,20 @@ async def skip(cli, message: Message, _, chat_id):
 
         return
 
-    # ============================================================
-    # 4. TELEGRAM / SOUNDCLOUD / FALLBACK
-    # ============================================================
-
+    # D. Telegram / SoundCloud / Local Files
     else:
-
-        # Missing local file
         if (
             queued
             and not str(queued).startswith("http")
             and not os.path.exists(queued)
-            and videoid
-            not in [
-                "telegram",
-                "soundcloud",
-            ]
+            and videoid not in ["telegram", "soundcloud"]
         ):
-
             return await message.reply_text(
                 "❌ **Track file lost on server. Skipping to next...**"
             )
 
         image = None
-
-        if videoid not in [
-            "telegram",
-            "soundcloud",
-            "none",
-        ]:
-
+        if videoid not in ["telegram", "soundcloud", "none"]:
             try:
                 image = await YouTube.thumbnail(
                     videoid,
@@ -525,21 +408,14 @@ async def skip(cli, message: Message, _, chat_id):
                 video=status,
                 image=image,
             )
-
         except Exception as e:
-
             return await message.reply_text(
                 f"❌ **Skip failed:** `{e}`"
             )
 
-        button = stream_markup(
-            _,
-            chat_id,
-        )
+        button = stream_markup(_, chat_id)
 
-        # Telegram audio/video
         if videoid == "telegram":
-
             run = await message.reply_photo(
                 photo=(
                     config.TELEGRAM_AUDIO_URL
@@ -549,20 +425,13 @@ async def skip(cli, message: Message, _, chat_id):
                 caption=_["stream_1"].format(
                     config.SUPPORT_CHAT,
                     title[:23],
-                    next_song.get(
-                        "dur",
-                        "03:00",
-                    ),
+                    next_song.get("dur", "03:00"),
                     user,
                 ),
-                reply_markup=InlineKeyboardMarkup(
-                    button
-                ),
+                reply_markup=InlineKeyboardMarkup(button),
             )
 
-        # SoundCloud
         elif videoid == "soundcloud":
-
             run = await message.reply_photo(
                 photo=(
                     config.SOUNDCLOUD_IMG_URL
@@ -572,41 +441,25 @@ async def skip(cli, message: Message, _, chat_id):
                 caption=_["stream_1"].format(
                     config.SUPPORT_CHAT,
                     title[:23],
-                    next_song.get(
-                        "dur",
-                        "03:00",
-                    ),
+                    next_song.get("dur", "03:00"),
                     user,
                 ),
-                reply_markup=InlineKeyboardMarkup(
-                    button
-                ),
+                reply_markup=InlineKeyboardMarkup(button),
             )
 
-        # Normal YouTube fallback
         else:
-
-            img = await get_thumb(
-                videoid
-            )
-
+            img = await get_thumb(videoid)
             run = await message.reply_photo(
                 photo=img,
                 caption=_["stream_1"].format(
                     f"https://t.me/{app.username}?start=info_{videoid}",
                     title[:23],
-                    next_song.get(
-                        "dur",
-                        "03:00",
-                    ),
+                    next_song.get("dur", "03:00"),
                     user,
                 ),
-                reply_markup=InlineKeyboardMarkup(
-                    button
-                ),
+                reply_markup=InlineKeyboardMarkup(button),
             )
 
         db[chat_id][0]["mystic"] = run
         db[chat_id][0]["markup"] = "stream"
-
         return
