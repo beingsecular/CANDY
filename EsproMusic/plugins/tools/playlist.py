@@ -205,7 +205,7 @@ async def resolve_youtube_track(query: str, vidid: str = None, url: str = None):
 
 
 # ==============================================================================
-# UI MANAGEMENT
+# UI MANAGEMENT & IMPORT HELPER FUNCTIONS
 # ==============================================================================
 PLAYLIST_STATES = {}
 
@@ -241,6 +241,20 @@ async def render_my_playlists_screen(user_id: int):
     buttons.append([InlineKeyboardButton("❌ ᴄʟᴏsᴇ", callback_data="close_cb")])
 
     return text, InlineKeyboardMarkup(buttons)
+
+
+# IMPORT FIX: Handlers expecting 'show_my_playlists_menu' or 'display_my_playlists'
+async def show_my_playlists_menu(client, message_or_cb, user_id: int = None):
+    if user_id is None:
+        user_id = message_or_cb.from_user.id
+    text, reply_markup = await render_my_playlists_screen(user_id)
+
+    if isinstance(message_or_cb, CallbackQuery):
+        await message_or_cb.message.edit_text(text, reply_markup=reply_markup)
+    else:
+        await message_or_cb.reply_text(text, reply_markup=reply_markup)
+
+display_my_playlists = show_my_playlists_menu
 
 
 async def render_playlist_details_screen(user_id: int, playlist_id: str, page: int = 1):
@@ -320,8 +334,7 @@ async def render_playlist_details_screen(user_id: int, playlist_id: str, page: i
 @app.on_message(filters.command(["playlist", "myplaylist"]) & ~BANNED_USERS)
 async def my_playlist_cmd(client, message: Message):
     user_id = message.from_user.id
-    text, reply_markup = await render_my_playlists_screen(user_id)
-    await message.reply_text(text, reply_markup=reply_markup)
+    await show_my_playlists_menu(client, message, user_id)
 
 
 @app.on_callback_query(filters.regex(r"^close_cb$") & ~BANNED_USERS)
@@ -391,8 +404,7 @@ async def playlist_callback_router(client, cb: CallbackQuery):
         if user_id in PLAYLIST_STATES:
             PLAYLIST_STATES.pop(user_id, None)
 
-        text, reply_markup = await render_my_playlists_screen(user_id)
-        await cb.message.edit_text(text, reply_markup=reply_markup)
+        await show_my_playlists_menu(client, cb, user_id)
         await cb.answer()
 
     elif action == "create":
@@ -412,8 +424,7 @@ async def playlist_callback_router(client, cb: CallbackQuery):
 
     elif action == "cancel":
         PLAYLIST_STATES.pop(user_id, None)
-        text, reply_markup = await render_my_playlists_screen(user_id)
-        await cb.message.edit_text(text, reply_markup=reply_markup)
+        await show_my_playlists_menu(client, cb, user_id)
         await cb.answer("Action cancelled.")
 
     elif action == "view":
@@ -527,8 +538,7 @@ async def playlist_callback_router(client, cb: CallbackQuery):
         else:
             await cb.answer("Failed to delete playlist.", show_alert=True)
 
-        text, reply_markup = await render_my_playlists_screen(user_id)
-        await cb.message.edit_text(text, reply_markup=reply_markup)
+        await show_my_playlists_menu(client, cb, user_id)
 
     elif action == "play":
         playlist_id = data[2]
