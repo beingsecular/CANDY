@@ -554,7 +554,7 @@ async def playlist_callback_router(client, cb: CallbackQuery):
 
 
 # ==============================================================================
-# GROUP COMMAND: /playplaylist & /playpl (FIXED QUEUE & SKIP SUPPORT)
+# GROUP COMMAND: /playplaylist & /playpl (FIXED QUEUE NEXT SONG SKIP)
 # ==============================================================================
 @app.on_message(filters.command(["playplaylist", "playpl"]) & ~BANNED_USERS)
 async def play_playlist_cmd(client, message: Message):
@@ -583,7 +583,7 @@ async def play_playlist_cmd(client, message: Message):
     songs = playlist["songs"]
     pl_name = playlist.get("name", "Playlist")
 
-    mystic = await message.reply_text("🔄 **Resolving tracks for group streaming...**")
+    mystic = await message.reply_text("🔄 **Resolving tracks for playlist stream...**")
 
     valid_queue = []
     for song in songs:
@@ -596,9 +596,9 @@ async def play_playlist_cmd(client, message: Message):
             valid_queue.append(resolved)
 
     if not valid_queue:
-        return await mystic.edit_text("❌ **Playlist ke gane YouTube par search nahi ho sake.**")
+        return await mystic.edit_text("❌ **Playlist ke gane resolve nahi ho paaye.**")
 
-    # Reset chat queue list
+    # Clear previous queue
     db[chat_id] = []
     try:
         if hasattr(EsproCall, "stop_stream"):
@@ -641,7 +641,7 @@ async def play_playlist_cmd(client, message: Message):
         "file": f"vid_{first_track['vidid']}",
     }
 
-    # ENQUEUE ALL REMAINING TRACKS INTO STREAMER QUEUE FOR /skip SUPPORT
+    # PROPER QUEUE STRUCTURE FOR NEXT SONG SKIP
     for song in valid_queue[1:]:
         d_item = {
             "title": song["title"],
@@ -678,7 +678,7 @@ async def play_playlist_cmd(client, message: Message):
             f"⊳ **ᴘʟᴀʏʟɪsᴛ ᴘʟᴀʏɪɴɢ ɪɴ ɢʀᴏᴜᴘ!**\n\n"
             f"📂 **Name:** `{pl_name}`\n"
             f"🎵 **Total Queued:** `{len(valid_queue)} songs`\n\n"
-            f"💡 *Ab aap `/skip` ya Inline Skip button se playlist ke saare songs skip kar sakte hain!*"
+            f"💡 *Ab aap `/skip` ya Inline Skip button dabaney par agla song play ho jayega!*"
         )
     except Exception as e:
         await mystic.edit_text(f"❌ **Error playing playlist:** `{e}`")
@@ -764,7 +764,7 @@ async def playlist_text_input_handler(client, message: Message):
             )
 
         buttons = [
-            [InlineKeyboardButton("✚ ᴀᴅ夜 ᴀɴᴏᴛʜᴇʀ sᴏɴɢ", callback_data=f"playlist:add_manual:{playlist_id}")],
+            [InlineKeyboardButton("✚ ᴀᴅᴅ ᴀɴᴏᴛʜᴇʀ sᴏɴɢ", callback_data=f"playlist:add_manual:{playlist_id}")],
             [InlineKeyboardButton("🎵 ᴠɪᴇᴡ ᴘʟᴀʏʟɪsᴛ", callback_data=f"playlist:view:{playlist_id}:1")],
             [InlineKeyboardButton("🔙 ʙᴀᴄᴋ ᴛᴏ ᴘʟᴀʏʟɪsᴛs", callback_data="playlist:list")],
         ]
