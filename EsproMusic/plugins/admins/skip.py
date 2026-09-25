@@ -38,7 +38,7 @@ async def skip(cli, message: Message, _, chat_id):
     )
 
     # ============================================================
-    # 1. /skip NUMBER (e.g., /skip 3)
+    # 1. BULK SKIP: /skip NUMBER (e.g., /skip 3)
     # ============================================================
     if len(message.command) >= 2:
 
@@ -64,7 +64,6 @@ async def skip(cli, message: Message, _, chat_id):
                 _["admin_11"].format(len(queue))
             )
 
-        # Remove 'state' number of tracks from db (including current playing track)
         for _ in range(state):
             if not db.get(chat_id):
                 break
@@ -77,7 +76,6 @@ async def skip(cli, message: Message, _, chat_id):
                 except Exception:
                     pass
 
-        # If queue empty after bulk skip -> Try Autoplay or Stop Stream
         if not db.get(chat_id):
             try:
                 from EsproMusic.plugins.tools.autoplay import try_autoplay
@@ -104,10 +102,9 @@ async def skip(cli, message: Message, _, chat_id):
                 return
 
     # ============================================================
-    # 2. NORMAL /skip OR NEXT TRACK PROCESS
+    # 2. NORMAL SINGLE /skip PROCESS
     # ============================================================
     else:
-        # Check current queue availability
         queue = db.get(chat_id)
 
         if not queue or len(queue) == 0:
@@ -135,7 +132,6 @@ async def skip(cli, message: Message, _, chat_id):
             except Exception:
                 return
 
-        # Pop current playing song/playlist track
         current_song = db[chat_id].pop(0)
 
         try:
@@ -143,7 +139,6 @@ async def skip(cli, message: Message, _, chat_id):
         except Exception:
             pass
 
-    # Re-check queue after popping
     if not db.get(chat_id):
         try:
             from EsproMusic.plugins.tools.autoplay import try_autoplay
@@ -197,13 +192,8 @@ async def skip(cli, message: Message, _, chat_id):
         "",
     )
 
-    status = (
-        True
-        if str(streamtype) == "video"
-        else None
-    )
+    status = True if str(streamtype) == "video" else None
 
-    # Reset metadata state for next item
     try:
         db[chat_id][0]["played"] = 0
     except Exception:
@@ -313,7 +303,7 @@ async def skip(cli, message: Message, _, chat_id):
 
         file_path = (
             queued
-            if queued and os.path.exists(queued)
+            if queued and isinstance(queued, str) and os.path.exists(queued)
             else None
         )
 
@@ -325,6 +315,7 @@ async def skip(cli, message: Message, _, chat_id):
                     videoid=True,
                     video=status,
                 )
+                db[chat_id][0]["file"] = file_path
             except Exception as e:
                 return await mystic.edit_text(
                     f"❌ **Download failed:** `{e}`"
