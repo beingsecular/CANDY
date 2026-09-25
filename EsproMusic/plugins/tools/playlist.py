@@ -31,7 +31,7 @@ from EsproMusic.utils.database import (
     remove_active_video_chat,
 )
 from EsproMusic.utils.stream.stream import stream
-from EsproMusic.utils.inline import stream_markup, telegram_markup
+from EsproMusic.utils.inline import stream_markup
 from config import BANNED_USERS
 
 # Safe import for YouTube search helper
