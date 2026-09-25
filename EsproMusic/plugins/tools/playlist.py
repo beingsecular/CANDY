@@ -31,6 +31,7 @@ from EsproMusic.utils.database import (
     remove_active_video_chat,
 )
 from EsproMusic.utils.stream.stream import stream
+from EsproMusic.utils.inline import stream_markup, telegram_markup
 from config import BANNED_USERS
 
 # Safe import for YouTube search helper
@@ -662,7 +663,7 @@ async def play_playlist_cmd(client, message: Message):
         "file": f"vid_{first_track['vidid']}",
     }
 
-    # FORMAT REMAINING TRACKS INTO DB QUEUE
+    # FORMAT REMAINING TRACKS INTO DB QUEUE WITH FULL COMPATIBILITY
     for song in valid_queue[1:]:
         d_item = {
             "title": song["title"],
@@ -678,6 +679,7 @@ async def play_playlist_cmd(client, message: Message):
             "file": f"vid_{song['vidid']}",
             "old_dur": song["duration_min"],
             "old_second": 180,
+            "played": 0,
         }
         db[chat_id].append(d_item)
 
@@ -698,7 +700,7 @@ async def play_playlist_cmd(client, message: Message):
             f"⊳ **ᴘʟᴀʏʟɪsᴛ ᴘʟᴀʏɪɴɢ ɪɴ ɢʀᴏᴜᴘ!**\n\n"
             f"📂 **Name:** `{pl_name}`\n"
             f"🎵 **Total Queued:** `{len(valid_queue)} songs`\n\n"
-            f"💡 *Ab aap normal `/skip` command se bhi playlist ke gane skip kar sakte hain!*"
+            f"💡 *Ab aap `/skip` se playlist ke songs skip kar sakte hain!*"
         )
     except Exception as e:
         await mystic.edit_text(f"❌ **Error playing playlist:** `{e}`")
