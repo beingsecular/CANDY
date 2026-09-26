@@ -1,10 +1,8 @@
 import os
+import time
 from random import randint
 from typing import Union
-from EsproMusic.utils.formatters import seekbar, time_to_seconds
 
-import time
-from EsproMusic.utils.stream.progress import progress_updater
 from pyrogram.types import InlineKeyboardMarkup
 
 import config
@@ -13,8 +11,10 @@ from EsproMusic.core.call import Ritik
 from EsproMusic.misc import db
 from EsproMusic.utils.database import add_active_video_chat, is_active_chat
 from EsproMusic.utils.exceptions import AssistantErr
+from EsproMusic.utils.formatters import seekbar, time_to_seconds
 from EsproMusic.utils.inline import aq_markup, close_markup, stream_markup
 from EsproMusic.utils.pastebin import RitikBin
+from EsproMusic.utils.stream.progress import progress_updater
 from EsproMusic.utils.stream.queue import put_queue, put_queue_index
 from EsproMusic.utils.thumbnails import get_thumb
 
@@ -103,18 +103,26 @@ async def stream(
                 )
                 img = await get_thumb(vidid)
                 button = stream_markup(_, chat_id)
+                link = f"https://t.me/{app.username}?start=info_{vidid}"
                 run = await app.send_photo(
                     original_chat_id,
                     photo=img,
                     caption=_["stream_1"].format(
-                        f"https://t.me/{app.username}?start=info_{vidid}",
+                        link,
                         title[:23],
                         duration_min,
+                        seekbar(0),
+                        "0:00",
                     ),
                     reply_markup=InlineKeyboardMarkup(button),
                 )
                 db[chat_id][0]["mystic"] = run
                 db[chat_id][0]["markup"] = "stream"
+                db[chat_id][0]["start_time"] = time.time()
+                import asyncio
+                asyncio.create_task(
+                    progress_updater(_, chat_id, run, link, title, duration_min)
+                )
         if count == 0:
             return
         else:
@@ -188,18 +196,26 @@ async def stream(
             )
             img = await get_thumb(vidid)
             button = stream_markup(_, chat_id)
+            info_link = f"https://t.me/{app.username}?start=info_{vidid}"
             run = await app.send_photo(
                 original_chat_id,
                 photo=img,
                 caption=_["stream_1"].format(
-                    f"https://t.me/{app.username}?start=info_{vidid}",
+                    info_link,
                     title[:23],
                     duration_min,
+                    seekbar(0),
+                    "0:00",
                 ),
                 reply_markup=InlineKeyboardMarkup(button),
             )
             db[chat_id][0]["mystic"] = run
             db[chat_id][0]["markup"] = "stream"
+            db[chat_id][0]["start_time"] = time.time()
+            import asyncio
+            asyncio.create_task(
+                progress_updater(_, chat_id, run, info_link, title, duration_min)
+            )
     elif streamtype == "soundcloud":
         file_path = result["filepath"]
         title = result["title"]
@@ -244,12 +260,21 @@ async def stream(
                 original_chat_id,
                 photo=config.SOUNCLOUD_IMG_URL,
                 caption=_["stream_1"].format(
-                    config.SUPPORT_CHAT, title[:23], duration_min
+                    config.SUPPORT_CHAT,
+                    title[:23],
+                    duration_min,
+                    seekbar(0),
+                    "0:00",
                 ),
                 reply_markup=InlineKeyboardMarkup(button),
             )
             db[chat_id][0]["mystic"] = run
             db[chat_id][0]["markup"] = "tg"
+            db[chat_id][0]["start_time"] = time.time()
+            import asyncio
+            asyncio.create_task(
+                progress_updater(_, chat_id, run, config.SUPPORT_CHAT, title, duration_min)
+            )
     elif streamtype == "telegram":
         file_path = result["path"]
         link = result["link"]
@@ -297,11 +322,22 @@ async def stream(
             run = await app.send_photo(
                 original_chat_id,
                 photo=config.TELEGRAM_VIDEO_URL if video else config.TELEGRAM_AUDIO_URL,
-                caption=_["stream_1"].format(link, title[:23], duration_min),
+                caption=_["stream_1"].format(
+                    link,
+                    title[:23],
+                    duration_min,
+                    seekbar(0),
+                    "0:00",
+                ),
                 reply_markup=InlineKeyboardMarkup(button),
             )
             db[chat_id][0]["mystic"] = run
             db[chat_id][0]["markup"] = "tg"
+            db[chat_id][0]["start_time"] = time.time()
+            import asyncio
+            asyncio.create_task(
+                progress_updater(_, chat_id, run, link, title, duration_min)
+            )
     elif streamtype == "live":
         link = result["link"]
         vidid = result["vidid"]
@@ -355,18 +391,22 @@ async def stream(
             )
             img = await get_thumb(vidid)
             button = stream_markup(_, chat_id)
+            info_link = f"https://t.me/{app.username}?start=info_{vidid}"
             run = await app.send_photo(
                 original_chat_id,
                 photo=img,
                 caption=_["stream_1"].format(
-                    f"https://t.me/{app.username}?start=info_{vidid}",
+                    info_link,
                     title[:23],
                     duration_min,
+                    seekbar(0),
+                    "0:00",
                 ),
                 reply_markup=InlineKeyboardMarkup(button),
             )
             db[chat_id][0]["mystic"] = run
             db[chat_id][0]["markup"] = "tg"
+            # Live streams don't have a fixed duration, so no progress_updater here
     elif streamtype == "index":
         link = result
         title = "ɪɴᴅᴇx ᴏʀ ᴍ3ᴜ8 ʟɪɴᴋ"
@@ -418,4 +458,3 @@ async def stream(
             db[chat_id][0]["mystic"] = run
             db[chat_id][0]["markup"] = "tg"
             await mystic.delete()
-            
