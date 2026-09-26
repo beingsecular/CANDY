@@ -1,15 +1,17 @@
 import math
 from pyrogram.types import InlineKeyboardButton
 from EsproMusic import app
-from EsproMusic.utils.formatters import time_to_seconds
 
 
 def _autoplay_label(chat_id) -> str:
     try:
         from EsproMusic.plugins.tools.autoplay import autoplay_label
-        return autoplay_label(chat_id)
+        label = autoplay_label(chat_id)
+        if "OFF" in label:
+            return "🔄 AutoPlay: OFF"
+        return "🔄 AutoPlay: ON"
     except Exception:
-        return "🔄 AutoPlay: OFF ❌"
+        return "🔄 AutoPlay: OFF"
 
 
 def track_markup(_, videoid, user_id, channel, fplay):
