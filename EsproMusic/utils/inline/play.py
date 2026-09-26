@@ -1,4 +1,3 @@
-import math
 from pyrogram.types import InlineKeyboardButton
 from EsproMusic import app
 
@@ -28,7 +27,7 @@ def track_markup(_, videoid, user_id, channel, fplay):
         ],
         [
             InlineKeyboardButton(
-                text=_["CLOSE_BUTTON"],
+                text="🗑 Close",
                 callback_data=f"forceclose {videoid}|{user_id}",
             )
         ],
@@ -46,18 +45,18 @@ def stream_markup_timer(_, chat_id, played, dur, videoid=""):
         ],
         [
             InlineKeyboardButton(
-                text="➕ Playlist",
+                text="➕ Create Playlist",
                 url=f"https://t.me/{app.username}?start=my_playlists"
             ),
             InlineKeyboardButton(
-                text="🎵 Add Song",
-                url=f"https://t.me/{app.username}?start=addpl_{videoid}" if videoid else f"https://t.me/{app.username}?start=my_playlists"
+                text="🎵 Add to Playlist",
+                url=f"https://t.me/{app.username}?start=addplaylist_{videoid}" if videoid else f"https://t.me/{app.username}?start=my_playlists"
             )
         ],
         [
             InlineKeyboardButton(
-                text="✖ Close",
-                callback_data=f"ADMIN Close|{chat_id}"
+                text="🗑 Close",
+                callback_data=f"forceclose {videoid}|{chat_id}"
             )
         ],
     ]
@@ -75,18 +74,18 @@ def stream_markup(_, chat_id, videoid=""):
         ],
         [
             InlineKeyboardButton(
-                text="➕ Playlist",
+                text="➕ Create Playlist",
                 url=f"https://t.me/{app.username}?start=my_playlists"
             ),
             InlineKeyboardButton(
-                text="🎵 Add Song",
-                url=f"https://t.me/{app.username}?start=addpl_{videoid}" if videoid else f"https://t.me/{app.username}?start=my_playlists"
+                text="🎵 Add to Playlist",
+                url=f"https://t.me/{app.username}?start=addplaylist_{videoid}" if videoid else f"https://t.me/{app.username}?start=my_playlists"
             )
         ],
         [
             InlineKeyboardButton(
-                text="✖ Close",
-                callback_data=f"ADMIN Close|{chat_id}"
+                text="🗑 Close",
+                callback_data=f"forceclose {videoid}|{chat_id}"
             )
         ],
     ]
@@ -107,7 +106,7 @@ def playlist_markup(_, videoid, user_id, ptype, channel, fplay):
         ],
         [
             InlineKeyboardButton(
-                text=_["CLOSE_BUTTON"],
+                text="🗑 Close",
                 callback_data=f"forceclose {videoid}|{user_id}",
             ),
         ],
@@ -125,7 +124,7 @@ def livestream_markup(_, videoid, user_id, mode, channel, fplay):
         ],
         [
             InlineKeyboardButton(
-                text=_["CLOSE_BUTTON"],
+                text="🗑 Close",
                 callback_data=f"forceclose {videoid}|{user_id}",
             ),
         ],
@@ -152,7 +151,7 @@ def slider_markup(_, videoid, user_id, query, query_type, channel, fplay):
                 callback_data=f"slider B|{query_type}|{query}|{user_id}|{channel}|{fplay}",
             ),
             InlineKeyboardButton(
-                text=_["CLOSE_BUTTON"],
+                text="🗑 Close",
                 callback_data=f"forceclose {query}|{user_id}",
             ),
             InlineKeyboardButton(
