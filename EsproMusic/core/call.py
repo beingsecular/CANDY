@@ -1,5 +1,6 @@
 import asyncio
 import os
+import time
 from datetime import datetime, timedelta
 from typing import Union
 
@@ -32,9 +33,10 @@ from EsproMusic.utils.database import (
     set_loop,
 )
 from EsproMusic.utils.exceptions import AssistantErr
-from EsproMusic.utils.formatters import check_duration, seconds_to_min, speed_converter
+from EsproMusic.utils.formatters import check_duration, seconds_to_min, seekbar, speed_converter
 from EsproMusic.utils.inline.play import stream_markup
 from EsproMusic.utils.stream.autoclear import auto_clean
+from EsproMusic.utils.stream.progress import progress_updater
 from EsproMusic.utils.thumbnails import get_thumb
 from strings import get_string
 
@@ -376,12 +378,14 @@ class Call(PyTgCalls):
                     f"https://t.me/{app.username}?start=info_{videoid}",
                     title[:23],
                     check[0]["dur"],
-                    user,
+                    seekbar(0),
+                    "0:00",
                 ),
                 reply_markup=InlineKeyboardMarkup(button),
             )
             db[chat_id][0]["mystic"] = run
             db[chat_id][0]["markup"] = "tg"
+            # Live tracks: no fixed duration, so no progress_updater here
 
         elif "vid_" in queued:
             mystic = await app.send_message(original_chat_id, _["call_7"])
@@ -414,19 +418,25 @@ class Call(PyTgCalls):
             img = await get_thumb(videoid)
             button = stream_markup(_, chat_id)
             await mystic.delete()
+            info_link = f"https://t.me/{app.username}?start=info_{videoid}"
             run = await app.send_photo(
                 chat_id=original_chat_id,
                 photo=img,
                 caption=_["stream_1"].format(
-                    f"https://t.me/{app.username}?start=info_{videoid}",
+                    info_link,
                     title[:23],
                     check[0]["dur"],
-                    user,
+                    seekbar(0),
+                    "0:00",
                 ),
                 reply_markup=InlineKeyboardMarkup(button),
             )
             db[chat_id][0]["mystic"] = run
             db[chat_id][0]["markup"] = "stream"
+            db[chat_id][0]["start_time"] = time.time()
+            asyncio.create_task(
+                progress_updater(_, chat_id, run, info_link, title, check[0]["dur"])
+            )
 
         elif "index_" in queued:
             stream = (
@@ -452,6 +462,7 @@ class Call(PyTgCalls):
             )
             db[chat_id][0]["mystic"] = run
             db[chat_id][0]["markup"] = "tg"
+            # index streamtype uses stream_2 (no bar placeholder), so skipped
 
         else:
             stream = (
@@ -476,40 +487,58 @@ class Call(PyTgCalls):
                     if str(streamtype) == "audio"
                     else config.TELEGRAM_VIDEO_URL,
                     caption=_["stream_1"].format(
-                        config.SUPPORT_CHAT, title[:23], check[0]["dur"], user
+                        config.SUPPORT_CHAT, title[:23], check[0]["dur"], seekbar(0), "0:00"
                     ),
                     reply_markup=InlineKeyboardMarkup(button),
                 )
                 db[chat_id][0]["mystic"] = run
                 db[chat_id][0]["markup"] = "tg"
+                db[chat_id][0]["start_time"] = time.time()
+                asyncio.create_task(
+                    progress_updater(
+                        _, chat_id, run, config.SUPPORT_CHAT, title, check[0]["dur"]
+                    )
+                )
             elif videoid == "soundcloud":
                 button = stream_markup(_, chat_id)
                 run = await app.send_photo(
                     chat_id=original_chat_id,
                     photo=config.SOUNCLOUD_IMG_URL,
                     caption=_["stream_1"].format(
-                        config.SUPPORT_CHAT, title[:23], check[0]["dur"], user
+                        config.SUPPORT_CHAT, title[:23], check[0]["dur"], seekbar(0), "0:00"
                     ),
                     reply_markup=InlineKeyboardMarkup(button),
                 )
                 db[chat_id][0]["mystic"] = run
                 db[chat_id][0]["markup"] = "tg"
+                db[chat_id][0]["start_time"] = time.time()
+                asyncio.create_task(
+                    progress_updater(
+                        _, chat_id, run, config.SUPPORT_CHAT, title, check[0]["dur"]
+                    )
+                )
             else:
                 img = await get_thumb(videoid)
                 button = stream_markup(_, chat_id)
+                info_link = f"https://t.me/{app.username}?start=info_{videoid}"
                 run = await app.send_photo(
                     chat_id=original_chat_id,
                     photo=img,
                     caption=_["stream_1"].format(
-                        f"https://t.me/{app.username}?start=info_{videoid}",
+                        info_link,
                         title[:23],
                         check[0]["dur"],
-                        user,
+                        seekbar(0),
+                        "0:00",
                     ),
                     reply_markup=InlineKeyboardMarkup(button),
                 )
                 db[chat_id][0]["mystic"] = run
                 db[chat_id][0]["markup"] = "stream"
+                db[chat_id][0]["start_time"] = time.time()
+                asyncio.create_task(
+                    progress_updater(_, chat_id, run, info_link, title, check[0]["dur"])
+                )
 
     async def ping(self):
         pings = []
