@@ -3,7 +3,8 @@ from random import randint
 from typing import Union
 from EsproMusic.utils.formatters import seekbar, time_to_seconds
 
-
+import time
+from EsproMusic.utils.stream.progress import progress_updater
 from pyrogram.types import InlineKeyboardMarkup
 
 import config
