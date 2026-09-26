@@ -39,11 +39,6 @@ def track_markup(_, videoid, user_id, channel, fplay):
 def stream_markup_timer(_, chat_id, played, dur, videoid=""):
     buttons = [
         [
-            InlineKeyboardButton(text="⏸ Pause", callback_data=f"ADMIN Pause|{chat_id}"),
-            InlineKeyboardButton(text="⏭ Skip", callback_data=f"ADMIN Skip|{chat_id}"),
-            InlineKeyboardButton(text="⏹ Stop", callback_data=f"ADMIN Stop|{chat_id}"),
-        ],
-        [
             InlineKeyboardButton(
                 text=_autoplay_label(chat_id),
                 callback_data=f"ADMIN AutoPlay|{chat_id}",
@@ -51,18 +46,18 @@ def stream_markup_timer(_, chat_id, played, dur, videoid=""):
         ],
         [
             InlineKeyboardButton(
-                text="➕ Create Playlist",
+                text="➕ Playlist",
                 url=f"https://t.me/{app.username}?start=my_playlists"
             ),
             InlineKeyboardButton(
-                text="🎵 Add to Playlist",
+                text="🎵 Add Song",
                 url=f"https://t.me/{app.username}?start=addpl_{videoid}" if videoid else f"https://t.me/{app.username}?start=my_playlists"
             )
         ],
         [
             InlineKeyboardButton(
-                text="▶ Continue Queue",
-                callback_data=f"ADMIN Resume|{chat_id}"
+                text="✖ Close",
+                callback_data=f"ADMIN Close|{chat_id}"
             )
         ],
     ]
@@ -73,11 +68,6 @@ def stream_markup(_, chat_id, videoid=""):
     ap_text = _autoplay_label(chat_id)
     buttons = [
         [
-            InlineKeyboardButton(text="⏸ Pause", callback_data=f"ADMIN Pause|{chat_id}"),
-            InlineKeyboardButton(text="⏭ Skip", callback_data=f"ADMIN Skip|{chat_id}"),
-            InlineKeyboardButton(text="⏹ Stop", callback_data=f"ADMIN Stop|{chat_id}"),
-        ],
-        [
             InlineKeyboardButton(
                 text=ap_text,
                 callback_data=f"ADMIN AutoPlay|{chat_id}",
@@ -85,18 +75,18 @@ def stream_markup(_, chat_id, videoid=""):
         ],
         [
             InlineKeyboardButton(
-                text="➕ Create Playlist",
+                text="➕ Playlist",
                 url=f"https://t.me/{app.username}?start=my_playlists"
             ),
             InlineKeyboardButton(
-                text="🎵 Add to Playlist",
+                text="🎵 Add Song",
                 url=f"https://t.me/{app.username}?start=addpl_{videoid}" if videoid else f"https://t.me/{app.username}?start=my_playlists"
             )
         ],
         [
             InlineKeyboardButton(
-                text="▶ Continue Queue",
-                callback_data=f"ADMIN Resume|{chat_id}"
+                text="✖ Close",
+                callback_data=f"ADMIN Close|{chat_id}"
             )
         ],
     ]
@@ -172,4 +162,3 @@ def slider_markup(_, videoid, user_id, query, query_type, channel, fplay):
         ],
     ]
     return buttons
-    
