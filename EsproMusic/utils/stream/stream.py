@@ -1,6 +1,8 @@
 import os
 from random import randint
 from typing import Union
+from EsproMusic.utils.formatters import seekbar, time_to_seconds
+
 
 from pyrogram.types import InlineKeyboardMarkup
 
