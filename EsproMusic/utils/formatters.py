@@ -155,11 +155,11 @@ def played_percentage(played: int, dur: int) -> int:
 def seekbar(percentage: int = 0) -> str:
     """Generates continuous streaming line UI"""
     if percentage <= 0:
-        return "───────────────────"
+        return "──────────"
     elif percentage >= 100:
-        return "───────────────────"
+        return "──────────"
     else:
-        total_len = 19
+        total_len = 10
         filled = int((percentage / 100) * total_len)
         return "━" * filled + "🔘" + "━" * (total_len - filled - 1)
 
