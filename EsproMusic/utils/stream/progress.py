@@ -2,7 +2,7 @@ import asyncio
 import time
 
 from EsproMusic.misc import db
-from EsproMusic.utils.formatters import seconds_to_min, time_to_seconds, dynamic_bar
+from EsproMusic.utils.formatters import seconds_to_min, time_to_seconds, seekbar, played_percentage
 
 
 async def progress_updater(_, chat_id, message, link, title, duration_min, interval=8):
@@ -32,7 +32,8 @@ async def progress_updater(_, chat_id, message, link, title, duration_min, inter
         if played >= dur_sec:
             return
 
-        bar = dynamic_bar(played, dur_sec)
+        percent = played_percentage(played, dur_sec)
+        bar = seekbar(percent)
         played_str = seconds_to_min(played)
 
         try:
