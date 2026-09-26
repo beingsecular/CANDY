@@ -144,6 +144,14 @@ def check_duration(file_path):
     return "Unknown"
 
 
+def played_percentage(played: int, dur: int) -> int:
+    """played aur dur seconds me do, percentage (0-100) milega"""
+    if not dur or dur <= 0:
+        return 0
+    percent = int((played / dur) * 100)
+    return max(0, min(percent, 100))
+
+
 def seekbar(percentage: int = 0) -> str:
     """Generates continuous streaming line UI"""
     if percentage <= 0:
