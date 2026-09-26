@@ -16,6 +16,7 @@ from EsproMusic.core.mongo import mongodb
 from EsproMusic.misc import SUDOERS, db
 from EsproMusic.utils.database import get_lang, group_assistant, is_active_chat
 from EsproMusic.utils.decorators import AdminRightsCheck
+from EsproMusic.utils.formatters import seekbar
 from EsproMusic.utils.inline.play import stream_markup
 from EsproMusic.utils.stream.queue import put_queue
 from EsproMusic.utils.thumbnails import get_thumb
@@ -286,19 +287,26 @@ async def trigger_autoplay(client, chat_id: int, last_track: dict) -> bool:
                 language = await get_lang(chat_id)
                 _ = get_string(language)
                 img = await get_thumb(vidid)
+                info_link = f"https://t.me/{app.username}?start=info_{vidid}"
                 run = await app.send_photo(
                     chat_id=origin_chat,
                     photo=img,
                     caption=_["stream_1"].format(
-                        f"https://t.me/{app.username}?start=info_{vidid}",
+                        info_link,
                         title[:23],
                         duration_min,
-                        "AutoPlay 🔄",
+                        seekbar(0),
+                        "0:00",
                     ),
                     reply_markup=InlineKeyboardMarkup(stream_markup(_, chat_id)),
                 )
                 db[chat_id][0]["mystic"] = run
                 db[chat_id][0]["markup"] = "stream"
+                db[chat_id][0]["start_time"] = __import__("time").time()
+                from EsproMusic.utils.stream.progress import progress_updater
+                asyncio.create_task(
+                    progress_updater(_, chat_id, run, info_link, title, duration_min)
+                )
             except Exception as e:
                 # stream chalu hai, bas notification fail hui - koi dikkat nahi
                 LOGGER(__name__).warning(f"[AutoPlay] notify failed: {e}")
