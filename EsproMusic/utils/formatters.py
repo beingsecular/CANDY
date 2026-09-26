@@ -144,6 +144,18 @@ def check_duration(file_path):
     return "Unknown"
 
 
+def seekbar(percentage: int = 0) -> str:
+    """Generates continuous streaming line UI"""
+    if percentage <= 0:
+        return "───────────────────"
+    elif percentage >= 100:
+        return "───────────────────"
+    else:
+        total_len = 19
+        filled = int((percentage / 100) * total_len)
+        return "━" * filled + "🔘" + "━" * (total_len - filled - 1)
+
+
 formats = [
     "webm",
     "mkv",
