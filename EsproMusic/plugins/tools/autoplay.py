@@ -5,6 +5,7 @@ import re
 import yt_dlp
 from pyrogram import filters
 from pyrogram.enums import ChatMemberStatus, ParseMode
+from pyrogram.errors import MessageNotModified
 from pyrogram.types import CallbackQuery, InlineKeyboardMarkup, Message
 from pytgcalls.types.input_stream import AudioPiped
 from pytgcalls.types.input_stream.quality import HighQualityAudio
@@ -84,6 +85,8 @@ async def refresh_now_playing_button(chat_id: int):
         await entry[0]["mystic"].edit_reply_markup(
             InlineKeyboardMarkup(stream_markup(_, chat_id))
         )
+    except MessageNotModified:
+        pass
     except Exception as e:
         LOGGER(__name__).warning(f"[AutoPlay] button refresh failed: {e}")
 
@@ -394,6 +397,8 @@ async def _handle_autoplay_button(CallbackQuery: CallbackQuery):
         await CallbackQuery.edit_message_reply_markup(
             InlineKeyboardMarkup(stream_markup(_, chat_id))
         )
+    except MessageNotModified:
+        pass
     except Exception as e:
         LOGGER(__name__).warning(f"[AutoPlay] button refresh failed: {e}")
 
